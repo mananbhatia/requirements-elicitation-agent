@@ -1,20 +1,41 @@
 """
 Scenario loader and knowledge retrieval.
 
-Parses any scenario markdown file into two layers:
-  surface_text  — everything the client LLM always has in context
-  tacit_items   — facts hidden until the consultant asks specifically enough
+Parses any scenario markdown file into three layers:
 
-Scenario markdown format expected:
-  # Scenario: <title>
-  ## <any sections>
-  ## What the Client Knows But Won't Volunteer [Tacit Knowledge]
-  - <fact> [TIER 1]
-  - <fact> [TIER 2]
-  ## <more sections>
+  character_text  — who the client IS: identity, personality, team, limitations.
+                    Always in the system prompt. Contains NO factual data points.
 
-Everything except the tacit knowledge bullets becomes surface_text.
-The tacit section is parsed item-by-item, tier labels preserved.
+  surface_items   — facts the client would share if asked about the relevant topic.
+                    Gated: unlocked when the question is about that topic area.
+                    Parsed from: Company Overview, Current Data Platform,
+                    What the Client Can Articulate.
+
+  tacit_items     — facts the client knows but guards carefully.
+                    Gated: unlocked only when asked specifically about the
+                    current state or process for that topic.
+                    Parsed from: What the Client Knows But Won't Volunteer.
+
+Both surface and tacit items are injected into the system prompt only after
+the consultant earns them. The LLM cannot reveal what it cannot see.
+
+Scenario markdown sections are classified as follows:
+  CHARACTER sections (kept in character_text):
+    - Instructions for Synthetic Client
+    - What the Client Genuinely Doesn't Know
+    - Team Members
+    - Personality and Communication Style
+
+  SURFACE sections (parsed into surface_items):
+    - Company Overview
+    - Current Data Platform
+    - What the Client Can Articulate
+
+  TACIT section (parsed into tacit_items):
+    - What the Client Knows But Won't Volunteer [Tacit Knowledge]
+
+  DROPPED sections (meta/training context, not useful to the LLM):
+    - Scope Note
 """
 
 import re
@@ -27,73 +48,131 @@ from langchain_core.messages import HumanMessage as LCHumanMessage
 
 @dataclass
 class ScenarioItem:
-    id: str        # slug derived from content, used to track revealed state
-    content: str   # the fact itself — injected into system prompt when unlocked
-    tier: str      # "TIER 1", "TIER 2", or "TIER 3" — used by evaluator later
+    id: str      # slug derived from content
+    content: str # the fact — injected into system prompt when unlocked
+    tier: str    # "TIER 1", "TIER 2", "TIER 3" — used by evaluator
+    layer: str   # "surface" or "tacit" — controls unlock threshold
 
 
 @dataclass
 class Scenario:
     title: str
-    surface_text: str          # always in system prompt
+    character_text: str                        # always in system prompt
+    surface_items: list[ScenarioItem] = field(default_factory=list)
     tacit_items: list[ScenarioItem] = field(default_factory=list)
 
 
+# Which section headers belong to character_text (case-insensitive partial match).
+_CHARACTER_SECTIONS = [
+    "instructions for synthetic client",
+    "what the client genuinely doesn't know",
+    "team members",
+    "personality and communication style",
+]
+
+# Which section headers to drop entirely (meta/training context).
+_DROPPED_SECTIONS = [
+    "scope note",
+]
+
+
 def _slugify(text: str, max_words: int = 5) -> str:
-    """Derive a stable ID from the first few words of a string."""
     words = re.sub(r"[^a-z0-9\s]", "", text.lower()).split()
     return "_".join(words[:max_words])
+
+
+def _tier_from_header(header: str) -> str:
+    """Extract tier from a section header like '## Company Overview [TIER 3 — ...]'."""
+    m = re.search(r"TIER\s+([123])", header)
+    return f"TIER {m.group(1)}" if m else "TIER 3"
+
+
+def _parse_bullets(section_body: str, default_tier: str) -> list[tuple[str, str]]:
+    """
+    Return (content, tier) pairs for each bullet in a section body.
+    Strips inline [TIER N] markers from content.
+    """
+    results = []
+    for match in re.finditer(r"^\s*-\s+(.+)$", section_body, re.MULTILINE):
+        raw = match.group(1).strip()
+        tier_match = re.search(r"\[(TIER\s+[123])[^\]]*\]", raw)
+        tier = tier_match.group(1).strip() if tier_match else default_tier
+        content = re.sub(r"\s*\[[^\]]*\]", "", raw).strip().strip('"')
+        if content:
+            results.append((content, tier))
+    return results
 
 
 def load_scenario(path: str | Path) -> Scenario:
     """
     Parse a scenario markdown file into a Scenario object.
-    The tacit knowledge section is extracted and removed from surface_text.
-    Everything else (character instructions, personality, team, platform context)
-    stays in surface_text so the LLM knows who it is.
     """
     text = Path(path).read_text()
 
-    # Extract title from the first H1 heading.
-    title_match = re.search(r"^#\s+Scenario:\s*(.+)$", text, re.MULTILINE)
+    # Extract title.
+    title_match = re.search(r"#\s+Scenario:\s*(.+)", text)
     title = title_match.group(1).strip() if title_match else Path(path).stem
 
-    # Find the tacit knowledge section.
-    # Matches: "## What the Client Knows But Won't Volunteer [Tacit Knowledge]"
-    # or any H2 containing "Tacit Knowledge"
-    tacit_section_pattern = re.compile(
-        r"(##[^\n]*Tacit Knowledge[^\n]*\n)(.*?)(?=\n##|\Z)",
-        re.DOTALL | re.IGNORECASE,
-    )
-    tacit_match = tacit_section_pattern.search(text)
+    # Split into sections on ## headers.
+    # Each element: (header_line, body_text)
+    section_pattern = re.compile(r"(##[^\n]+)\n(.*?)(?=\n##|\Z)", re.DOTALL)
+    sections = section_pattern.findall(text)
 
+    character_parts: list[str] = []
+    surface_items: list[ScenarioItem] = []
     tacit_items: list[ScenarioItem] = []
+    seen_ids: dict[str, int] = {}
 
-    if tacit_match:
-        tacit_body = tacit_match.group(2)
+    def make_id(content: str) -> str:
+        base = _slugify(content)
+        count = seen_ids.get(base, 0)
+        seen_ids[base] = count + 1
+        return base if count == 0 else f"{base}_{count}"
 
-        # Parse each bullet: "- <content> [TIER N]" or "- <content> [TIER N — note]"
-        bullet_pattern = re.compile(
-            r"^\s*-\s+(.+?)\s+\[(TIER\s+[123])[^\]]*\]",
-            re.MULTILINE,
-        )
-        seen_ids: dict[str, int] = {}
-        for match in bullet_pattern.finditer(tacit_body):
-            content = match.group(1).strip()
-            tier = match.group(2).strip()
-            base_id = _slugify(content)
-            # Deduplicate IDs if two items produce the same slug.
-            count = seen_ids.get(base_id, 0)
-            seen_ids[base_id] = count + 1
-            item_id = base_id if count == 0 else f"{base_id}_{count}"
-            tacit_items.append(ScenarioItem(id=item_id, content=content, tier=tier))
+    for header, body in sections:
+        header_lower = header.lower()
 
-        # Remove tacit section from surface text — the LLM should not see these facts.
-        surface_text = tacit_section_pattern.sub("", text).strip()
-    else:
-        surface_text = text.strip()
+        # --- Classify section ---
+        is_character = any(k in header_lower for k in _CHARACTER_SECTIONS)
+        is_dropped = any(k in header_lower for k in _DROPPED_SECTIONS)
+        is_tacit = "tacit knowledge" in header_lower
+        # Everything else is a surface section.
 
-    return Scenario(title=title, surface_text=surface_text, tacit_items=tacit_items)
+        if is_dropped:
+            continue
+
+        if is_character:
+            character_parts.append(header.strip() + "\n" + body.strip())
+            continue
+
+        if is_tacit:
+            default_tier = _tier_from_header(header)
+            for content, tier in _parse_bullets(body, default_tier):
+                tacit_items.append(ScenarioItem(
+                    id=make_id(content),
+                    content=content,
+                    tier=tier,
+                    layer="tacit",
+                ))
+            continue
+
+        # Surface section — parse bullets.
+        default_tier = _tier_from_header(header)
+        for content, tier in _parse_bullets(body, default_tier):
+            surface_items.append(ScenarioItem(
+                id=make_id(content),
+                content=content,
+                tier=tier,
+                layer="surface",
+            ))
+
+    character_text = "\n\n".join(character_parts)
+    return Scenario(
+        title=title,
+        character_text=character_text,
+        surface_items=surface_items,
+        tacit_items=tacit_items,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -104,43 +183,58 @@ _RETRIEVAL_PROMPT = """A consultant is interviewing a client about their Databri
 
 The consultant just said: "{question}"
 
-Below are private facts the client knows but has not revealed yet.
-Identify which facts (if any) this question is specifically asking about.
+STEP 1 — Disqualify immediately if ANY of these are true. Return empty if so:
+- The input is a single word or keyword (e.g. "SCIM", "clusters", "environments")
+- The input names a topic without asking about it (e.g. "access control", "user provisioning")
+- The input is vague or exploratory ("tell me more", "what about X", "how does that work")
+- The input does not contain a specific, answerable question
 
-Rules:
-- Only match a fact if the question directly and specifically asks about that topic.
-- Broad or catch-all questions ("tell me about your setup", "what problems do you have",
-  "anything else?", "what should I know?") must match NOTHING.
-- A general question about a topic area should unlock at most one fact — the most
-  directly relevant one. Do not unlock multiple related facts at once.
-- Return an empty list for vague or exploratory questions.
+STEP 2 — If it passes Step 1, check the two item pools below.
+Match at most ONE item total across both pools.
 
-Facts:
-{items}
+SURFACE items — unlock if the consultant asks a question about that topic area
+(does not need to be about current state specifically):
+{surface_items}
 
-Return a JSON object: {{"matched_ids": ["id1", "id2"]}} or {{"matched_ids": []}}
+TACIT items — unlock ONLY if the consultant asks specifically how this currently
+works, who does it, what the process is, or what the current state is at this
+organisation. "Do you have X?" or "How do you currently do Y?" qualifies.
+"What is X?" or "Tell me about X" does NOT qualify.
+{tacit_items}
+
+Return JSON: {{"matched_ids": ["id"]}} or {{"matched_ids": []}}
 """
 
 
 def retrieve_relevant_knowledge(
     question: str,
+    surface_items: list[ScenarioItem],
     tacit_items: list[ScenarioItem],
     already_revealed_ids: list[str],
 ) -> list[ScenarioItem]:
     """
-    Returns newly unlocked tacit items for this turn.
-    Uses gpt-4o to classify which items the question specifically asks about.
+    Returns newly unlocked items (surface or tacit) for this turn.
     """
-    unrevealed = [t for t in tacit_items if t.id not in already_revealed_ids]
-    if not unrevealed:
+    unrevealed_surface = [t for t in surface_items if t.id not in already_revealed_ids]
+    unrevealed_tacit = [t for t in tacit_items if t.id not in already_revealed_ids]
+
+    if not unrevealed_surface and not unrevealed_tacit:
         return []
 
-    items_text = "\n".join(
-        f'- id: "{t.id}", fact: "{t.content}"' for t in unrevealed
-    )
+    surface_text = "\n".join(
+        f'- id: "{t.id}", fact: "{t.content}"' for t in unrevealed_surface
+    ) or "(none remaining)"
+
+    tacit_text = "\n".join(
+        f'- id: "{t.id}", fact: "{t.content}"' for t in unrevealed_tacit
+    ) or "(none remaining)"
 
     llm = ChatOpenAI(model="gpt-4o", temperature=0.0)
-    prompt = _RETRIEVAL_PROMPT.format(question=question, items=items_text)
+    prompt = _RETRIEVAL_PROMPT.format(
+        question=question,
+        surface_items=surface_text,
+        tacit_items=tacit_text,
+    )
     response = llm.invoke([LCHumanMessage(content=prompt)])
 
     try:
@@ -149,4 +243,5 @@ def retrieve_relevant_knowledge(
     except (json.JSONDecodeError, AttributeError):
         matched_ids = []
 
-    return [t for t in unrevealed if t.id in matched_ids]
+    all_unrevealed = unrevealed_surface + unrevealed_tacit
+    return [t for t in all_unrevealed if t.id in matched_ids]

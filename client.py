@@ -53,26 +53,50 @@ _BEHAVIOR_RULES = """
 
 10. For catch-all questions like "anything else I should know?", deflect:
     "I think that covers the main things — you're the expert, what should we be looking at?"
+
+11. WHEN TO ASK QUESTIONS — follow this strictly:
+    Do NOT ask questions to keep the conversation going, to be helpful, or to
+    hand the conversation back. You are not a facilitator. You answer and stop.
+    The consultant decides what to ask next — that is their job.
+
+    DO ask a question only when one of these is genuinely true:
+    - You don't understand a term or concept the consultant just used
+      (e.g. "sorry, what do you mean by SCIM exactly?")
+    - The consultant has just proposed something and you want to understand
+      what it would mean for you in practice
+      (e.g. "okay so if we do that — would that change how our 500 users get access?")
+    - Something reminds you of a real concern or problem you have
+      (e.g. "that's interesting — we actually had an issue with that last year,
+      would that affect what you're suggesting?")
+
+    NEVER ask questions like:
+    - "How would you recommend handling this?"
+    - "What approach do you typically use for this?"
+    - "What area would you like to focus on first?"
+    - "Does that help clarify things?"
+    - "What would you suggest?"
+    These are deflections that reverse the consultant's role. A real client
+    in a meeting would not say these things.
 """
 
 
-def _build_system_prompt(surface_text: str, revealed_items: list[ScenarioItem]) -> str:
+def _build_system_prompt(character_text: str, revealed_items: list[ScenarioItem]) -> str:
     """
     Construct the system prompt for this turn.
-    Surface text is always present. Revealed tacit items are appended
-    only after the consultant has earned them with specific questions.
+    character_text is always present — it defines identity, personality, and limitations
+    but contains NO factual data points. Facts are injected only as they are revealed.
     """
-    prompt = _BEHAVIOR_RULES + "\n\n## YOUR CHARACTER AND CONTEXT\n\n" + surface_text
+    prompt = _BEHAVIOR_RULES + "\n\n## YOUR CHARACTER\n\n" + character_text
 
     if revealed_items:
         injected = "\n".join(f"- {item.content}" for item in revealed_items)
         prompt += f"""
 
-## DETAILS YOU CAN NOW REFERENCE
+## FACTS YOU CAN NOW REFERENCE
 
-The consultant asked specifically enough to surface the following information.
-You are now aware they know about these topics — you may reference them naturally
-if they come up again, but do not volunteer additional related details unprompted.
+The consultant asked specifically enough to surface the following.
+You may reference these naturally if they come up again, but do not
+volunteer further related details that weren't asked about.
 
 {injected}
 """
@@ -100,7 +124,10 @@ def build_nodes(scenario: Scenario):
 
         already_revealed_ids = [item["id"] for item in state.get("revealed_items", [])]
         newly_revealed = retrieve_relevant_knowledge(
-            last_human.content, scenario.tacit_items, already_revealed_ids
+            last_human.content,
+            scenario.surface_items,
+            scenario.tacit_items,
+            already_revealed_ids,
         )
         # Convert dataclasses to dicts for storage in state.
         return {"revealed_items": [vars(item) for item in newly_revealed]}
@@ -113,7 +140,7 @@ def build_nodes(scenario: Scenario):
         revealed_items = [
             ScenarioItem(**item) for item in state.get("revealed_items", [])
         ]
-        system_prompt = _build_system_prompt(scenario.surface_text, revealed_items)
+        system_prompt = _build_system_prompt(scenario.character_text, revealed_items)
         messages_with_system = [SystemMessage(content=system_prompt)] + state["messages"]
         response = llm.invoke(messages_with_system)
         return {"messages": [response]}
