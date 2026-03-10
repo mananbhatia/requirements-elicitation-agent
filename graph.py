@@ -1,35 +1,27 @@
 """
 LangGraph Concept: THE GRAPH
 =============================
-We now have two nodes wired in sequence:
+build_graph() now accepts a Scenario object and wires it into the nodes via closures.
+Swapping scenarios requires no code changes — just pass a different Scenario.
 
+Flow each turn:
   START → retrieval_node → client_node → END
-
-Each turn:
-  1. retrieval_node checks the consultant's question, unlocks tacit knowledge if earned.
-  2. client_node builds a fresh system prompt with only what's been revealed so far,
-     then calls the LLM.
-
-The key insight: client_node never sees tacit knowledge it hasn't earned.
-The LLM cannot leak information that isn't in its context.
 """
 
 from langgraph.graph import StateGraph, START, END
 from state import ConversationState
-from client import retrieval_node, client_node
+from knowledge import Scenario
+from client import build_nodes
 
 
-def build_graph():
+def build_graph(scenario: Scenario):
+    retrieval_node, client_node = build_nodes(scenario)
+
     builder = StateGraph(ConversationState)
-
     builder.add_node("retrieval", retrieval_node)
     builder.add_node("client", client_node)
-
     builder.add_edge(START, "retrieval")
     builder.add_edge("retrieval", "client")
     builder.add_edge("client", END)
 
     return builder.compile()
-
-
-graph = build_graph()

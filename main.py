@@ -1,49 +1,53 @@
 """
 Terminal conversation loop.
 
+Usage:
+  python main.py                                          # uses default scenario
+  python main.py docs/scenarios/waste_management_client.md
+
 LangGraph Concept: INVOKE vs STREAM
 =====================================
 graph.invoke(state) — runs the graph to completion, returns final state.
 graph.stream(state) — yields state snapshots after each node finishes.
 
-We use invoke() here: pass in the current messages, get back the updated
-messages list including Danny's new response.
-
-Key pattern: we own the state between turns.
-LangGraph doesn't persist state automatically in this setup — we hold the
-`messages` list ourselves and pass it in on each invoke(). This is called
-"in-memory" state. Later, with checkpointers, LangGraph can persist state
-to a DB and resume across sessions.
+We use invoke() here. State (messages + revealed_items) is held in Python
+between turns and passed in fresh each call — "in-memory" state management.
 """
 
+import sys
+from pathlib import Path
 from dotenv import load_dotenv
 load_dotenv()
 
 from langchain_core.messages import HumanMessage
-from graph import graph
+from knowledge import load_scenario
+from graph import build_graph
+
+DEFAULT_SCENARIO = Path(__file__).parent / "docs" / "scenarios" / "waste_management_client.md"
 
 
-def run():
+def run(scenario_path: str | Path = DEFAULT_SCENARIO):
+    scenario = load_scenario(scenario_path)
+    graph = build_graph(scenario)
+
     print("\n" + "=" * 60)
-    print("  Revodata Synthetic Client Interview")
-    print("  Scenario: GreenCycle Industries — Access Control")
+    print(f"  Revodata Synthetic Client Interview")
+    print(f"  Scenario: {scenario.title}")
+    print(f"  Tacit knowledge items: {len(scenario.tacit_items)}")
     print("=" * 60)
     print("\nType your questions as the consultant.")
     print("Type 'done' or 'exit' to end the interview.\n")
 
-    # Danny opens with the initial brief — a one-liner to kick things off.
-    # We invoke the graph with no prior messages so Danny introduces himself.
+    # Kick off with a hidden system prompt asking the client to open naturally.
     opening_prompt = HumanMessage(
-        content="[Start of interview. Please introduce yourself and state your opening requirement in 2-3 sentences. Be natural.]"
+        content="[Start of interview. Introduce yourself and state your opening requirement in 2-3 sentences. Be natural and conversational.]"
     )
     state = graph.invoke({"messages": [opening_prompt], "revealed_items": []})
 
-    # Print Danny's opening, then drop the fake prompt from history so the
-    # consultant's first real turn is what goes on record.
-    danny_opening = state["messages"][-1].content
-    print(f"Danny: {danny_opening}\n")
+    client_opening = state["messages"][-1].content
+    print(f"Client: {client_opening}\n")
 
-    # Carry forward Danny's opening line and the revealed_items state.
+    # Drop the fake opening prompt; carry forward only the client's first line.
     messages = [state["messages"][-1]]
     revealed_items = state.get("revealed_items", [])
 
@@ -61,18 +65,16 @@ def run():
             print("\n[Interview ended. Evaluation coming in a future version.]\n")
             break
 
-        # Add consultant's message and invoke the graph.
         messages.append(HumanMessage(content=consultant_input))
         state = graph.invoke({"messages": messages, "revealed_items": revealed_items})
 
-        # The last message is Danny's response.
-        danny_response = state["messages"][-1].content
-        print(f"\nDanny: {danny_response}\n")
+        client_response = state["messages"][-1].content
+        print(f"\nClient: {client_response}\n")
 
-        # Accumulate full history and revealed knowledge for next turn.
         messages = state["messages"]
         revealed_items = state.get("revealed_items", [])
 
 
 if __name__ == "__main__":
-    run()
+    path = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_SCENARIO
+    run(path)

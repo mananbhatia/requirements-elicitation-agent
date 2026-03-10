@@ -83,7 +83,6 @@ asks the right questions:
 - Key Vaults have public access enabled [TIER 2]
 - Hub & spoke network exists but Databricks isn't properly integrated into it [TIER 2]
 - SCIM / automated user provisioning is not set up — users are managed manually [TIER 1]
-- There are plans to connect Entra ID for user provisioning but it hasn't been done yet[TIER 1]
 
 ## What the Client Genuinely Doesn't Know
 Danny will respond vaguely or say "that's what we need you to help us figure out":
