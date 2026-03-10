@@ -65,7 +65,6 @@ class Scenario:
 # Which section headers belong to character_text (case-insensitive partial match).
 _CHARACTER_SECTIONS = [
     "instructions for synthetic client",
-    "what the client genuinely doesn't know",
     "team members",
     "personality and communication style",
 ]
@@ -73,6 +72,7 @@ _CHARACTER_SECTIONS = [
 # Which section headers to drop entirely (meta/training context).
 _DROPPED_SECTIONS = [
     "scope note",
+    "what the client genuinely doesn't know",
 ]
 
 
@@ -183,23 +183,28 @@ _RETRIEVAL_PROMPT = """A consultant is interviewing a client about their Databri
 
 The consultant just said: "{question}"
 
-STEP 1 — Disqualify immediately if ANY of these are true. Return empty if so:
-- The input is a single word or keyword (e.g. "SCIM", "clusters", "environments")
-- The input names a topic without asking about it (e.g. "access control", "user provisioning")
-- The input is vague or exploratory ("tell me more", "what about X", "how does that work")
-- The input does not contain a specific, answerable question
+Your job is to judge the intent behind the question.
 
-STEP 2 — If it passes Step 1, check the two item pools below.
-Match at most ONE item total across both pools.
+Questions fall into two categories:
+- Generic: asking about a concept, technology, or best practice in general terms.
+  These do not earn information — the client is not an educator.
+- Pinpointed: asking about a specific problem, situation, or aspect of THIS client's
+  setup in a way that shows the consultant is probing their particular reality.
+  These earn information if they match a known fact.
 
-SURFACE items — unlock if the consultant asks a question about that topic area
-(does not need to be about current state specifically):
+A question can mention a specific topic and still be generic if it could be asked
+of any client. A question earns information only when it is directed at this client's
+specific circumstances in a way that a thoughtful, probing consultant would ask.
+
+If the question is generic, a catch-all, or a bare topic name, return empty.
+
+If it is pinpointed, find the single best matching item across both pools below.
+Match at most ONE item — the most directly relevant one.
+
+SURFACE items:
 {surface_items}
 
-TACIT items — unlock ONLY if the consultant asks specifically how this currently
-works, who does it, what the process is, or what the current state is at this
-organisation. "Do you have X?" or "How do you currently do Y?" qualifies.
-"What is X?" or "Tell me about X" does NOT qualify.
+TACIT items:
 {tacit_items}
 
 Return JSON: {{"matched_ids": ["id"]}} or {{"matched_ids": []}}
@@ -238,7 +243,12 @@ def retrieve_relevant_knowledge(
     response = llm.invoke([LCHumanMessage(content=prompt)])
 
     try:
-        parsed = json.loads(response.content)
+        # Strip markdown code fences if present (```json ... ```)
+        raw = response.content.strip()
+        if raw.startswith("```"):
+            raw = re.sub(r"^```[a-z]*\n?", "", raw)
+            raw = re.sub(r"\n?```$", "", raw)
+        parsed = json.loads(raw)
         matched_ids = parsed.get("matched_ids", [])
     except (json.JSONDecodeError, AttributeError):
         matched_ids = []

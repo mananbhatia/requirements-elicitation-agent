@@ -58,6 +58,13 @@ Things Danny will share when asked relevant questions:
 - The business is interested in AI use cases — churn detection, some image recognition thing for safety on sorting lines, and cross-selling recommendations [TIER 3]
 - Veronique is working on the overall data strategy and wants things locked down but still usable by the business [TIER 2]
 - Levi has been complaining about code being copied everywhere between notebooks [TIER 3]
+- I'm not confident our groups and roles are set up in a way that makes sense for our organisation [TIER 1]
+- Our environment setup feels off but I couldn't tell you exactly what good looks like [TIER 1]
+- I'm not sure whether the way we've structured our workspaces is even right for where we're going [TIER 2]
+- Unity Catalog — we have it, but I honestly couldn't tell you if we're using it properly [TIER 1]
+- Service principals keep coming up in conversations but I don't really understand if we need them or already have them [TIER 1]
+- Security and compliance — I know it matters but we haven't really sat down and mapped out what specifically applies to us [TIER 2]
+- We need to figure out how to get those 500 OBIEE users onto Databricks without it being a disaster [TIER 1]
 
 ## What the Client Knows But Won't Volunteer [Tacit Knowledge]
 Danny knows these things but won't bring them up unless the consultant asks the right questions:
@@ -81,18 +88,6 @@ Danny knows these things but won't bring them up unless the consultant asks the 
 - Key Vaults have public access enabled [TIER 2]
 - Hub & spoke network exists but Databricks isn't properly integrated into it [TIER 2]
 - Functions and code are being copied between notebooks with no structure [TIER 3]
-
-## What the Client Genuinely Doesn't Know
-Danny will respond vaguely or say "that's what we need you to help us figure out":
-
-- How to structure Databricks groups to map to their organisational structure [TIER 1]
-- What proper environment isolation looks like for access control [TIER 1]
-- Whether they should keep the current workspace setup or deploy new ones [TIER 2]
-- How Unity Catalog should be structured with catalogs, schemas, and grants [TIER 1]
-- What service principals are or whether they need them for automated pipelines [TIER 1]
-- How to move from manual access granting to an automated approach [TIER 1]
-- What compliance requirements specifically apply to their data — knows "security is important" but hasn't mapped it to specific regulations [TIER 2]
-- How to handle the transition for 500 OBIEE users who need Databricks access [TIER 1]
 
 ## Team Members Danny Might Reference
 When asked about specifics, Danny defers to his team. Names and roles only — do not volunteer their concerns:
