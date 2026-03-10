@@ -183,20 +183,24 @@ _RETRIEVAL_PROMPT = """A consultant is interviewing a client about their Databri
 
 The consultant just said: "{question}"
 
-Your job is to judge the intent behind the question.
+Your job is to judge whether the consultant's input is a genuine, specific question
+about this client's situation — or just a topic reference.
 
-Questions fall into two categories:
-- Generic: asking about a concept, technology, or best practice in general terms.
-  These do not earn information — the client is not an educator.
-- Pinpointed: asking about a specific problem, situation, or aspect of THIS client's
-  setup in a way that shows the consultant is probing their particular reality.
-  These earn information if they match a known fact.
+DISQUALIFY and return empty for any of these:
+- A bare topic name, with or without a question mark: "SCIM", "hub and spoke?", "key vaults"
+- "What about X?" — this is a topic reference, not a question. Disqualify regardless
+  of how specific X is. "What about self-service analytics?" is the same as saying
+  "self-service analytics" — it names a topic without asking anything about it.
+- Any input where adding "?" to a topic name would produce the same meaning
+- Catch-all prompts: "anything else?", "what else?", "go on"
+- Questions about how a technology works in general (not about this client's setup)
 
-A question can mention a specific topic and still be generic if it could be asked
-of any client. A question earns information only when it is directed at this client's
-specific circumstances in a way that a thoughtful, probing consultant would ask.
+A genuine question has real structure and intent — it asks HOW, WHO, WHETHER, or WHAT
+specifically about this client's circumstances. If a question could be answered the same
+way for any client, it is generic. A question earns information only when it probes
+this client's particular reality in a way that requires knowing their specific situation.
 
-If the question is generic, a catch-all, or a bare topic name, return empty.
+If disqualified, return empty.
 
 If it is pinpointed, find the single best matching item across both pools below.
 Match at most ONE item — the most directly relevant one.
