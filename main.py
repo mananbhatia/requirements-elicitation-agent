@@ -36,16 +36,16 @@ def run():
     opening_prompt = HumanMessage(
         content="[Start of interview. Please introduce yourself and state your opening requirement in 2-3 sentences. Be natural.]"
     )
-    state = graph.invoke({"messages": [opening_prompt]})
+    state = graph.invoke({"messages": [opening_prompt], "revealed_items": []})
 
     # Print Danny's opening, then drop the fake prompt from history so the
     # consultant's first real turn is what goes on record.
     danny_opening = state["messages"][-1].content
     print(f"Danny: {danny_opening}\n")
 
-    # Keep the real conversation history (without the fake opening prompt).
-    # From here on, state["messages"] will grow with each turn.
-    messages = [state["messages"][-1]]  # just Danny's opening line
+    # Carry forward Danny's opening line and the revealed_items state.
+    messages = [state["messages"][-1]]
+    revealed_items = state.get("revealed_items", [])
 
     while True:
         try:
@@ -63,14 +63,15 @@ def run():
 
         # Add consultant's message and invoke the graph.
         messages.append(HumanMessage(content=consultant_input))
-        state = graph.invoke({"messages": messages})
+        state = graph.invoke({"messages": messages, "revealed_items": revealed_items})
 
         # The last message is Danny's response.
         danny_response = state["messages"][-1].content
         print(f"\nDanny: {danny_response}\n")
 
-        # Accumulate full history for next turn.
+        # Accumulate full history and revealed knowledge for next turn.
         messages = state["messages"]
+        revealed_items = state.get("revealed_items", [])
 
 
 if __name__ == "__main__":

@@ -1,44 +1,35 @@
 """
 LangGraph Concept: THE GRAPH
 =============================
-A StateGraph is the container. You add nodes and edges to define the flow.
+We now have two nodes wired in sequence:
 
-Edges come in two types:
-  - Normal edges:      A -> B  (always go from A to B)
-  - Conditional edges: A -> (B or C depending on state)  ← we'll use this later
+  START → retrieval_node → client_node → END
 
-Special sentinels:
-  START  — the entry point. Where execution begins each time you .invoke()
-  END    — terminates the graph for this invocation.
+Each turn:
+  1. retrieval_node checks the consultant's question, unlocks tacit knowledge if earned.
+  2. client_node builds a fresh system prompt with only what's been revealed so far,
+     then calls the LLM.
 
-.compile() validates the graph (no dangling nodes, no missing edges) and
-returns a CompiledGraph that you can call .invoke() or .stream() on.
-
-Our graph for now is trivially simple:
-  START -> synthetic_client_node -> END
-
-Each call to graph.invoke() is one conversation turn.
-The state (messages list) accumulates across turns because we pass the
-updated state back into the next invoke() call from main.py.
+The key insight: client_node never sees tacit knowledge it hasn't earned.
+The LLM cannot leak information that isn't in its context.
 """
 
 from langgraph.graph import StateGraph, START, END
 from state import ConversationState
-from client import synthetic_client_node
+from client import retrieval_node, client_node
 
 
 def build_graph():
     builder = StateGraph(ConversationState)
 
-    # Add nodes — just the synthetic client for now.
-    builder.add_node("synthetic_client", synthetic_client_node)
+    builder.add_node("retrieval", retrieval_node)
+    builder.add_node("client", client_node)
 
-    # Wire up edges.
-    builder.add_edge(START, "synthetic_client")
-    builder.add_edge("synthetic_client", END)
+    builder.add_edge(START, "retrieval")
+    builder.add_edge("retrieval", "client")
+    builder.add_edge("client", END)
 
     return builder.compile()
 
 
-# Build once and export — main.py imports this.
 graph = build_graph()
