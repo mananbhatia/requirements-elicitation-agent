@@ -55,6 +55,7 @@ Things Danny will share when asked relevant questions:
 - Luc keeps saying his team can't even set up their environment properly — non-technical users struggle and need a safe way to access data [TIER 1]
 - Thomas has been asking for the easiest way to give users role-based access controls instead of doing everything manually [TIER 1]
 - Emil says granting access is done manually right now and wants to know about Terraform or other ways to automate it [TIER 1]
+- There are no restrictions on who can create clusters or spin up compute in the workspaces — anyone can do it, which the team knows is not right [TIER 1]
 - Sajith is worried about scalability and governance — can the team handle more incoming data sources while keeping governance practices in place? [TIER 2]
 - The business is interested in AI use cases — churn detection, image recognition for safety on sorting lines, and cross-selling recommendations [TIER 3]
 - Veronique is working on the overall data strategy and wants things locked down but still usable by the business [TIER 2]
@@ -71,7 +72,7 @@ Danny knows these things but won't bring them up unless the consultant asks the 
 Written in Danny's language — no technical jargon:
 
 - Access is granted manually every time someone needs it — there is no automated process [TIER 1]
-- Anyone in the workspace can spin up compute or create clusters — there are no restrictions on that [TIER 1]
+
 - We can control access at the table level but not at the row level [TIER 1]
 - Object ownership is a mix — some things are owned by individual people, some by groups [TIER 1]
 - The environments are not properly in sync — production jobs are actually running on the acceptance environment [TIER 2]

@@ -31,12 +31,19 @@ def run(scenario_path: str | Path = DEFAULT_SCENARIO):
     graph = build_graph(scenario)
 
     print("\n" + "=" * 60)
-    print(f"  Revodata Synthetic Client Interview")
-    print(f"  Scenario: {scenario.title}")
-    print(f"  Tacit knowledge items: {len(scenario.tacit_items)}")
+    print(f"  Revodata — Consultant Interview Training")
     print("=" * 60)
-    print("\nType your questions as the consultant.")
-    print("Type 'done' or 'exit' to end the interview.\n")
+    print(f"""
+BRIEFING
+--------
+Client:       {scenario.title}
+Meeting type: Initial discovery — first meeting, no prior work done
+Your role:    Lead the discovery. Ask questions.
+
+The client is looking for help with their Databricks setup.
+Conduct the interview as you would with a real client.
+Type 'done' or 'exit' when finished.
+""")
 
     # Kick off with a hidden system prompt asking the client to open naturally.
     opening_prompt = HumanMessage(

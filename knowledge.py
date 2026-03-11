@@ -187,28 +187,38 @@ Recent conversation (for context):
 
 The consultant's latest input: "{question}"
 
-## STEP 1: Is this a genuine question?
+## YOUR TASK
 
-Answer YES only if the question asks specifically about THIS client's situation in a way
-that requires knowing their particular reality. It must have real interrogative intent —
-asking HOW, WHETHER, WHO, or WHAT about something specific to this client.
+First decide if this is a genuine question. Then, only if it is, find a matching item.
 
-Answer NO if any of these are true:
-- It is a bare topic name, with or without "?": "SCIM", "clusters?", "key vaults"
-- It follows the pattern "what about X?" or "how about X?" — naming a topic is not asking about it
-- Adding "?" to a topic name would produce the same meaning as the input
-- It is a catch-all: "anything else?", "what else?", "tell me more", "share more", "go on"
-- It asks how a technology works in general rather than about this client's specific setup
-- It is a reaction or statement, not a question: "really?", "that's interesting", "okay"
+### Step 1: Structural check (do this first)
+Does the input contain at least one verb or explicit question word?
+Question words: what, how, who, where, when, why, which, is, are, was, were,
+do, does, did, can, could, will, would, should, have, has, had.
 
-If NO → return {{"matched_ids": []}}
+If NO verb or question word is present → the input is a bare noun phrase or topic name.
+Set "is_genuine": false immediately. Do not proceed to step 2.
 
-## STEP 2: Find the matching item (only if YES)
+Examples that fail the structural check (no verb, no question word):
+"object ownership?", "SCIM?", "clusters?", "self service?", "hub and spoke"
 
-Using the recent conversation context to resolve any pronouns or references in the question,
-find the single best matching item from the pools below.
-Match at most ONE item — the most directly relevant one.
-If nothing is a clear match, return empty.
+### Step 2: Intent check (only if step 1 passes)
+Does the question ask specifically about THIS client's situation in a way that requires
+knowing their particular reality? Use the conversation context to resolve references.
+
+It is NOT genuine if:
+- "what about X?" or "how about X?" — naming a topic is not asking about it
+- It is a reaction or statement: "okay", "really?", "that's interesting"
+- It is a catch-all: "anything else?", "tell me more", "share more"
+- It asks how a technology works in general, not about this client specifically
+
+### Output format
+You must output JSON with two fields:
+- "is_genuine": true or false
+- "matched_ids": list with at most one item ID, or empty list
+
+If "is_genuine" is false, "matched_ids" MUST be [].
+If "is_genuine" is true, find the single best matching item below or return [].
 
 SURFACE items:
 {surface_items}
@@ -216,7 +226,7 @@ SURFACE items:
 TACIT items:
 {tacit_items}
 
-Return JSON: {{"matched_ids": ["id"]}} or {{"matched_ids": []}}
+Return JSON: {{"is_genuine": true/false, "matched_ids": ["id"] or []}}
 """
 
 
@@ -259,6 +269,8 @@ def retrieve_relevant_knowledge(
             raw = re.sub(r"^```[a-z]*\n?", "", raw)
             raw = re.sub(r"\n?```$", "", raw)
         parsed = json.loads(raw)
+        if not parsed.get("is_genuine", False):
+            return []
         matched_ids = parsed.get("matched_ids", [])
     except (json.JSONDecodeError, AttributeError):
         matched_ids = []

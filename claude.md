@@ -5,70 +5,135 @@ Real consultants practice interviewing AI-generated synthetic clients that behav
 like real organizational stakeholders. System evaluates their performance afterward.
 
 ## How It Works
-1. Consultant receives a brief initial requirement from a synthetic client (e.g., "We need to setup Databricks for xyz reason")
-2. Multi-turn conversation — consultant asks questions to uncover requirements, synthetic AI client responds
-3. After interview ends, system evaluates and generates feedback report
+1. Consultant receives an opening from a synthetic client stating their high-level need
+2. Multi-turn conversation — consultant asks questions to uncover requirements
+3. Synthetic client responds based on its persona and only reveals facts the consultant earns
+4. After interview ends, system evaluates and generates a feedback report (not yet built)
 
-## Synthetic Client Behavior Rules
-- Built on two dimensions: domain alignment (how well it knows its business) and persona alignment (collaborative vs. combative, clear vs. vague responses)
-- NEVER volunteer information unless the consultant asks for it
-- Only reveal details that match what was asked — never give too much away (Groundedness)
-- Track conversation history, don't repeat or contradict (Context Awareness)
-- Must not guide the conversation or reveal its AI nature
-- Responses should be natural, concise, and conversational — no lists or overly detailed explanations
-- For vague or broad questions, provide a general response and request clarification
+## Architecture
+
+### Knowledge Gating (core design principle)
+The synthetic client cannot reveal what it cannot see. All scenario knowledge is split into three layers:
+
+- **character_text** — always in the system prompt. Defines identity, personality, team structure.
+  Contains ZERO factual data about the platform or situation.
+- **surface_items** — facts the client would share if asked about the relevant topic.
+  Gated: unlocked by genuine specific questions. Parsed from Company Overview,
+  Current Data Platform, What the Client Can Articulate sections.
+- **tacit_items** — facts the client guards carefully. Written in plain client language,
+  no technical jargon. Gated: unlocked only when asked specifically. Parsed from
+  the "What the Client Knows But Won't Volunteer" section.
+
+### Retrieval System
+Each consultant turn runs through a retrieval LLM call (GPT-4o, temp 0.0) before the
+client responds. The retrieval decides whether the question is genuine and specific enough
+to unlock a new fact. Returns at most ONE item per turn.
+
+Retrieval uses a two-step approach:
+1. Structural check: does the input contain a verb or question word? Bare noun phrases fail immediately.
+2. Intent check: does it ask about this client's specific situation? Topic references ("SCIM?",
+   "what about X?") are disqualified. Catch-alls are disqualified.
+
+The last 2 conversation turns are passed as context so follow-up questions resolve correctly
+(e.g. "is it acceptance or production?" maps to PowerBI after discussing PowerBI).
+
+Retrieval returns `{"is_genuine": bool, "matched_ids": [...]}`. If `is_genuine` is false,
+no item is revealed regardless of matched_ids.
+
+### LangGraph Two-Node Design
+Each turn: `retrieval_node → client_node`
+- `retrieval_node`: reads latest human message + conversation context, calls retrieval LLM,
+  returns newly unlocked items as dicts
+- `client_node`: builds system prompt (character_text + all revealed items so far), calls
+  client LLM (GPT-4o, temp 0.7), returns response
+
+State: `messages` (conversation history, using add_messages reducer) +
+`revealed_items` (accumulated facts, deduplicated by ID via custom reducer)
+
+### Scenario File Structure
+Markdown files in `docs/scenarios/`. Sections classified by header:
+- **CHARACTER** (always visible): Instructions for Synthetic Client, Team Members,
+  Personality and Communication Style
+- **SURFACE** (gated): Company Overview, Current Data Platform, What the Client Can Articulate
+- **TACIT** (gated): What the Client Knows But Won't Volunteer [Tacit Knowledge]
+- **DROPPED** (never used): Scope Note, Technical Reference [EVALUATION ONLY]
+
+The Technical Reference section maps client plain language to technical terms — used by
+the evaluator, never seen by the client LLM.
+
+## Synthetic Client Behavior Rules (in client.py)
+Generic rules, scenario-agnostic, based on C-LEIA research principles:
+1. Answer only what was asked — stop there
+2. Never volunteer information
+3. Only know what is in context — no fabrication, no implied familiarity with unknown tools
+4. Never give recommendations or priorities — redirect to consultant
+5. Never break character
+6. No bullets, no formatting, no markdown — prose only
+7. Vague questions → minimal response + ask for clarification (not deferral)
+8. When deferring, name the specific team member if known
+9. Express facts through experience and reaction, not as statements
+10. Only ask questions when genuinely confused — not to hand control back
 
 ## Client Maturity Levels
-- **Low**: vague answers ("just make it secure"), can't articulate needs, no understanding of Databricks or technical concepts, doesn't know what it wants
-- **Medium**: knows what they want partially, mix of specific and vague answers, basic understanding of Databricks concepts
-- **High**: specific answers, knows exactly what they want but not how to achieve it, can react to proposals ("that won't work because..."), asks smart questions
+- **Low**: vague answers, can't articulate needs, no Databricks knowledge
+- **Medium**: knows what they want partially, basic familiarity with concepts, defers on implementation
+- **High**: specific answers, knows what they want but not how, reacts to proposals
 
-## Solution Space Dimensions
-The synthetic client has a defined organizational reality across these dimensions:
-- Business units and organizational structure
-- Environments (dev/test/prod/sandbox/pre-prod)
-- Team and group structure
-- Data sensitivity / PII / compliance
-- Unity Catalog design
-- Service principals and automation
-- Access control approach
-- Data architecture
+## Scenario Authoring Guidelines
+- character_text must contain ZERO platform facts — only identity and communication style
+- tacit items must be written in client's plain language — no technical jargon (SCIM, CMK, NCC etc.)
+- Technical terms belong only in the Technical Reference section
+- Tier labels on items: TIER 1 (must explore), TIER 2 (good consultants cover), TIER 3 (context)
 
-## Evaluation (post-interview)
-Criteria for judging how the consultant interviewed:
-- **Solution space coverage**: which dimensions did consultant explore vs. miss?
-- **Question quality**: assess against 14 established mistake types (see docs/evaluation/mistake_types.md for full list)
-- **Interaction strategy**: did they only ask questions or also propose solutions/directions?
-- **Adaptability**: did they adapt to the client's knowledge level?
+## Evaluation (not yet built)
+Criteria for judging consultant performance:
+- **Solution space coverage**: which dimensions explored vs. missed?
+- **Question quality**: assessed against established mistake types (docs/evaluation/mistake_types.md)
+- **Interaction strategy**: questions only, or also proposed solutions/directions?
+- **Adaptability**: adapted to client's knowledge level?
 
-## Output
-Feedback report about consultant performance. One page max.
-Structure (could be but can change, just initial idea): **Continue / Stop / Start**
-- Continue: good questions, keep asking these
-- Stop: questions that were ineffective or counterproductive, with reasons
-- Start: questions you should have asked but didn't
+Output: one-page feedback report. Structure: Continue / Stop / Start
+- Continue: effective questions, keep these
+- Stop: ineffective or counterproductive questions, with reasons
+- Start: questions that should have been asked but weren't
 
-Also include: specific mistakes identified (from mistake types), what better questions would have looked like, and what dimensions were missed entirely.
+Evaluator has access to the full scenario file including Technical Reference section
+for ground truth technical terminology.
 
 ## Tech Stack
-- Python
-- LangChain and LangGraph for conversation and state management
-- Streamlit for UI
-- Set up a virtual environment for the project
-- Keep it simple — no overengineering to begin with
+- Python, LangChain, LangGraph
+- OpenAI GPT-4o for both retrieval and client LLM
+- python-dotenv for API key management
+- Streamlit for UI (not yet built)
 
 ## Commands
-- `pip install -r requirements.txt` to install dependencies
-- `streamlit run app.py` to run the UI
-- `python -m pytest tests/` to run tests
-
-## Development Approach
-- Build incrementally: conversation loop first, then scenarios, then evaluation
-- Explain architectural decisions when I ask — I'm learning LangChain and LangGraph 
-- First scenario: anonymized waste management company, medium maturity, 
-  migrating to Databricks (see docs/scenarios/waste_management_client.md)
+- `python main.py` — run terminal interview with default scenario
+- `python main.py docs/scenarios/custom_scenario.md` — run with specific scenario
+- `pip install -r requirements.txt` — install dependencies
+- `python -m pytest tests/` — run tests (not yet written)
 
 ## Project Structure
-- Keep flat and simple for now
-- Separate the synthetic client logic from the evaluation logic
-- Reference docs in docs/ folder, not inline
+```
+agent_v2/
+├── main.py          # terminal conversation loop
+├── graph.py         # LangGraph graph construction
+├── client.py        # retrieval_node, client_node, behavior rules
+├── knowledge.py     # scenario parser, retrieval LLM call
+├── state.py         # ConversationState TypedDict, custom reducers
+├── docs/
+│   └── scenarios/
+│       └── waste_management_client.md   # first scenario (GreenCycle Industries)
+└── requirements.txt
+```
+
+## Key Design Decisions
+- **No facts in character_text**: the only reliable way to prevent leakage is to not give
+  the LLM the information at all. Rules cannot reliably suppress what the LLM can see.
+- **One item per turn**: forces consultants to ask specific follow-up questions; prevents
+  information dumps from single vague questions.
+- **Retrieval is a gate, not a search**: the retrieval LLM's job is to disqualify, not to find.
+  Most turns should return nothing. Specific, well-formed questions earn one fact.
+- **Plain language in tacit items**: technical terms in scenario items caused the client to
+  use jargon it couldn't explain, creating incoherence. Danny speaks Danny's language.
+- **Context passed to retrieval**: last 2 turns of conversation passed so follow-up questions
+  ("is it X or Y?") resolve correctly without requiring the consultant to repeat the topic.
