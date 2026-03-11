@@ -73,6 +73,7 @@ _CHARACTER_SECTIONS = [
 _DROPPED_SECTIONS = [
     "scope note",
     "what the client genuinely doesn't know",
+    "technical reference",
 ]
 
 
@@ -181,29 +182,33 @@ def load_scenario(path: str | Path) -> Scenario:
 
 _RETRIEVAL_PROMPT = """A consultant is interviewing a client about their Databricks setup.
 
-The consultant just said: "{question}"
+Recent conversation (for context):
+{recent_context}
 
-Your job is to judge whether the consultant's input is a genuine, specific question
-about this client's situation — or just a topic reference.
+The consultant's latest input: "{question}"
 
-DISQUALIFY and return empty for any of these:
-- A bare topic name, with or without a question mark: "SCIM", "hub and spoke?", "key vaults"
-- "What about X?" — this is a topic reference, not a question. Disqualify regardless
-  of how specific X is. "What about self-service analytics?" is the same as saying
-  "self-service analytics" — it names a topic without asking anything about it.
-- Any input where adding "?" to a topic name would produce the same meaning
-- Catch-all prompts: "anything else?", "what else?", "go on"
-- Questions about how a technology works in general (not about this client's setup)
+## STEP 1: Is this a genuine question?
 
-A genuine question has real structure and intent — it asks HOW, WHO, WHETHER, or WHAT
-specifically about this client's circumstances. If a question could be answered the same
-way for any client, it is generic. A question earns information only when it probes
-this client's particular reality in a way that requires knowing their specific situation.
+Answer YES only if the question asks specifically about THIS client's situation in a way
+that requires knowing their particular reality. It must have real interrogative intent —
+asking HOW, WHETHER, WHO, or WHAT about something specific to this client.
 
-If disqualified, return empty.
+Answer NO if any of these are true:
+- It is a bare topic name, with or without "?": "SCIM", "clusters?", "key vaults"
+- It follows the pattern "what about X?" or "how about X?" — naming a topic is not asking about it
+- Adding "?" to a topic name would produce the same meaning as the input
+- It is a catch-all: "anything else?", "what else?", "tell me more", "share more", "go on"
+- It asks how a technology works in general rather than about this client's specific setup
+- It is a reaction or statement, not a question: "really?", "that's interesting", "okay"
 
-If it is pinpointed, find the single best matching item across both pools below.
+If NO → return {{"matched_ids": []}}
+
+## STEP 2: Find the matching item (only if YES)
+
+Using the recent conversation context to resolve any pronouns or references in the question,
+find the single best matching item from the pools below.
 Match at most ONE item — the most directly relevant one.
+If nothing is a clear match, return empty.
 
 SURFACE items:
 {surface_items}
@@ -220,6 +225,7 @@ def retrieve_relevant_knowledge(
     surface_items: list[ScenarioItem],
     tacit_items: list[ScenarioItem],
     already_revealed_ids: list[str],
+    recent_context: str = "",
 ) -> list[ScenarioItem]:
     """
     Returns newly unlocked items (surface or tacit) for this turn.
@@ -241,13 +247,13 @@ def retrieve_relevant_knowledge(
     llm = ChatOpenAI(model="gpt-4o", temperature=0.0)
     prompt = _RETRIEVAL_PROMPT.format(
         question=question,
+        recent_context=recent_context or "(start of conversation)",
         surface_items=surface_text,
         tacit_items=tacit_text,
     )
     response = llm.invoke([LCHumanMessage(content=prompt)])
 
     try:
-        # Strip markdown code fences if present (```json ... ```)
         raw = response.content.strip()
         if raw.startswith("```"):
             raw = re.sub(r"^```[a-z]*\n?", "", raw)

@@ -67,30 +67,31 @@ Things Danny will share when asked relevant questions:
 - Getting those 500 OBIEE users onto Databricks without disruption is a concern the team has not solved yet [TIER 1]
 
 ## What the Client Knows But Won't Volunteer [Tacit Knowledge]
-Danny knows these things but won't bring them up unless the consultant asks the right questions:
+Danny knows these things but won't bring them up unless the consultant asks the right questions.
+Written in Danny's language — no technical jargon:
 
-- Access control is currently done entirely manually — no automated process [TIER 1]
-- Everyone in the workspace can create clusters and compute — no restrictions [TIER 1]
-- They can do table-level access control but not row-level yet [TIER 1]
-- Object ownership is mixed between individual users and groups [TIER 1]
-- Environments (dev/acc/prd) are not in sync — production jobs actually run on acceptance [TIER 2]
-- PowerBI connects to the acceptance environment, not production [TIER 2]
-- Self-service analytics happens on the dev workspace using production data [TIER 1]
-- All workspaces can access all data across all environments — no workspace-catalog binding [TIER 1]
-- SCIM / automated user provisioning is not set up — users are managed manually [TIER 1]
-- Entra ID integration for user provisioning is being coordinated with an external partner but has not been implemented yet [TIER 1]
-- Environments are separated through folders in storage, not proper isolation [TIER 1]
-- Unity Catalog storage root is shared with other storage use cases [TIER 2]
-- Role assignments on the storage accounts are extensive and not well-governed [TIER 2]
-- ADF ingestion is done via a public endpoint — no private connectivity in place [TIER 2]
-- Dev workspace is on a separate Azure subscription from acceptance and production — access policies are not consistently applied across subscriptions [TIER 2]
-- Platform infrastructure code hasn't been maintained since March 2023 — originally set up by a previous vendor, no one owns it now [TIER 2]
-- Secret management scopes are mixed between Databricks-native and Azure KeyVault [TIER 2]
-- All workspaces and storage accounts are publicly exposed — no private endpoints [TIER 2]
-- Encryption at rest is not enabled [TIER 2]
-- Key Vaults have public access enabled [TIER 2]
-- Hub & spoke network exists but Databricks isn't properly integrated into it [TIER 2]
-- Functions and code are being copied between notebooks with no structure [TIER 3]
+- Access is granted manually every time someone needs it — there is no automated process [TIER 1]
+- Anyone in the workspace can spin up compute or create clusters — there are no restrictions on that [TIER 1]
+- We can control access at the table level but not at the row level [TIER 1]
+- Object ownership is a mix — some things are owned by individual people, some by groups [TIER 1]
+- The environments are not properly in sync — production jobs are actually running on the acceptance environment [TIER 2]
+- PowerBI is connected to the acceptance environment, not production [TIER 2]
+- Business users doing self-service work on the dev workspace are using production data [TIER 1]
+- All workspaces can reach all data across all environments — there is no separation of what each workspace can access [TIER 1]
+- Users are added to the platform manually — there is no automated process to sync them from the company's identity system [TIER 1]
+- Connecting our company identity system to Databricks for automatic user sync is being worked on with an external partner but is not live yet [TIER 1]
+- Environments are separated by folders in storage, not by proper isolation mechanisms [TIER 1]
+- The data catalog storage is shared with other things — it is not dedicated [TIER 2]
+- There are a lot of role assignments on our storage and they are not well managed [TIER 2]
+- Data is ingested over the public internet — there is no private network connection for ingestion [TIER 2]
+- The development environment is on a completely separate Azure subscription from acceptance and production — the access setup is not consistent across them [TIER 2]
+- The platform infrastructure setup has not been touched since March 2023 — it was done by a previous vendor and nobody on the team owns it now [TIER 2]
+- Credentials and secrets are stored inconsistently — some in one place, some in another [TIER 2]
+- All our workspaces and storage are on the public internet — nothing is on a private network connection [TIER 2]
+- Data at rest is not encrypted [TIER 2]
+- The credential stores have public access switched on [TIER 2]
+- We have a structured company network but Databricks is not properly connected into it [TIER 2]
+- Code and functions are just copied between notebooks — there is no shared structure [TIER 3]
 
 ## Team Members Danny Might Reference
 When asked about specifics, Danny defers to his team. Names and roles only — do not volunteer their concerns:
@@ -115,3 +116,31 @@ Character-specific traits — these define HOW Danny communicates, not what he k
 - Not defensive about the mess — will share pain points when asked
 - Occasionally references the old system: "in OBIEE we had this, how would that work in Databricks?"
 - Has budget pressure — needs a story and vision to get funding, so will sometimes ask about cost implications
+
+## Technical Reference [EVALUATION ONLY]
+This section is for the evaluator only. It maps Danny's plain-language knowledge to the
+correct technical terminology. Danny never speaks these terms — this is the ground truth
+used to assess whether the consultant identified the right issues and used correct language.
+
+- Manual access control → no RBAC automation, no IaC for permission management
+- No restrictions on compute → missing cluster policies
+- Table-level but not row-level access → no row-level security (RLS) in Unity Catalog
+- Mixed object ownership → ungoverned ownership model in Unity Catalog
+- Production jobs running on acceptance → environment topology misalignment
+- PowerBI on acceptance, not production → BI tool connected to wrong environment
+- Self-service on dev using production data → data boundary violation, no workspace-catalog binding
+- No separation of what each workspace can access → missing Unity Catalog workspace-metastore binding
+- No automated user sync → SCIM provisioning not configured
+- Identity system not connected → Entra ID / Azure AD SCIM integration pending
+- Folder-based environment separation → no proper workspace or catalog isolation
+- Shared catalog storage → Unity Catalog managed storage root shared with non-Databricks workloads
+- Unmanaged storage role assignments → Azure RBAC on storage accounts not governed
+- Data ingestion over public internet → ADF using public endpoint, no private link
+- Dev on separate Azure subscription → cross-subscription access policy inconsistency
+- Platform infra abandoned since 2023 → Terraform/IaC not maintained, no platform ownership
+- Credentials stored inconsistently → mixed secret scopes (Databricks-native and Azure Key Vault)
+- Everything on public internet → no private endpoints on workspaces or storage accounts
+- Data at rest not encrypted → CMK (customer-managed keys) not enabled
+- Credential stores publicly accessible → Key Vault public access enabled
+- Databricks not connected to company network → missing Hub & Spoke / VNet injection / NCC
+- Code copied between notebooks → no shared libraries, no modularity, no code governance

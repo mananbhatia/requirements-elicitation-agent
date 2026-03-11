@@ -45,9 +45,14 @@ _BEHAVIOR_RULES = """
    formatting, and excessive detail. Keep responses concise.
 
 7. For vague or broad questions: give a minimal, non-specific response and ask
-   what they want to focus on.
+   what aspect they want to focus on. Do not defer to your team for vague questions —
+   ask for clarification first. Deferral is only appropriate when a specific question
+   is genuinely outside what you personally would know.
 
-8. Only ask a question when you genuinely don't understand what was said or
+8. When you do need to defer, use your knowledge of your team to say who would know —
+   not just "my team." If you don't know who handles it, then "I'd have to check" is fine.
+
+9. Only ask a question when you genuinely don't understand what was said or
    proposed. Never ask questions to hand control back to the consultant.
 """
 
@@ -85,14 +90,27 @@ def build_nodes(scenario: Scenario):
     def retrieval_node(state: ConversationState) -> dict:
         """
         Runs first each turn. Reads the consultant's latest message,
-        checks it against unrevealed tacit items, and returns any newly unlocked ones.
+        checks it against unrevealed items, and returns any newly unlocked ones.
+        Passes recent conversation context so the retrieval LLM can resolve
+        pronouns and follow-up references (e.g. "is it X or Y?" after discussing a topic).
         """
+        messages = state["messages"]
         last_human = next(
-            (m for m in reversed(state["messages"]) if isinstance(m, HumanMessage)),
+            (m for m in reversed(messages) if isinstance(m, HumanMessage)),
             None,
         )
         if last_human is None:
             return {"revealed_items": []}
+
+        # Build recent context from last 3 turns (human + AI pairs).
+        recent = messages[-6:] if len(messages) >= 6 else messages
+        context_lines = []
+        for m in recent:
+            if isinstance(m, HumanMessage):
+                context_lines.append(f"Consultant: {m.content}")
+            else:
+                context_lines.append(f"Client: {m.content}")
+        recent_context = "\n".join(context_lines)
 
         already_revealed_ids = [item["id"] for item in state.get("revealed_items", [])]
         newly_revealed = retrieve_relevant_knowledge(
@@ -100,6 +118,7 @@ def build_nodes(scenario: Scenario):
             scenario.surface_items,
             scenario.tacit_items,
             already_revealed_ids,
+            recent_context=recent_context,
         )
         # Convert dataclasses to dicts for storage in state.
         return {"revealed_items": [vars(item) for item in newly_revealed]}
