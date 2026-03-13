@@ -64,7 +64,8 @@ class Scenario:
 
 # Which section headers belong to character_text (case-insensitive partial match).
 _CHARACTER_SECTIONS = [
-    "instructions for synthetic client",
+    "identity",
+    "maturity level",
     "team members",
     "personality and communication style",
 ]

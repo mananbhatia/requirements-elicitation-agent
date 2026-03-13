@@ -52,8 +52,11 @@ State: `messages` (conversation history, using add_messages reducer) +
 
 ### Scenario File Structure
 Markdown files in `docs/scenarios/`. Sections classified by header:
-- **CHARACTER** (always visible): Instructions for Synthetic Client, Team Members,
-  Personality and Communication Style
+- **CHARACTER** (always visible): four sections, each a distinct authoring knob:
+  - `Identity` — who the client is, their role, company, and meeting context
+  - `Maturity Level` — three behavioral dimensions: technical knowledge, self-awareness of problems, response to proposals. Also sets deferral behavior. Set to Low / Medium / High.
+  - `Team Members` — names and roles only; who to defer to
+  - `Personality and Communication Style` — tone, register, quirks; how they speak, not what they know
 - **SURFACE** (gated): Company Overview, Current Data Platform, What the Client Can Articulate
 - **TACIT** (gated): What the Client Knows But Won't Volunteer [Tacit Knowledge]
 - **DROPPED** (never used): Scope Note, Technical Reference [EVALUATION ONLY]
@@ -75,13 +78,29 @@ Generic rules, scenario-agnostic, based on C-LEIA research principles:
 10. Only ask questions when genuinely confused — not to hand control back
 
 ## Client Maturity Levels
-- **Low**: vague answers, can't articulate needs, no Databricks knowledge
-- **Medium**: knows what they want partially, basic familiarity with concepts, defers on implementation
-- **High**: specific answers, knows what they want but not how, reacts to proposals
+Three dimensions, each set independently in the `Maturity Level` section of the scenario file:
+
+**Technical knowledge**
+- Low: no Databricks terminology; asks consultant to explain everything
+- Medium: knows names of concepts but not how they work; can't evaluate proposals
+- High: uses terms correctly; can react to and challenge proposals
+
+**Self-awareness of problems**
+- Low: knows things are broken but can't describe what or why
+- Medium: knows specific symptoms from team feedback; can't diagnose root causes
+- High: can articulate both the problem and what good looks like
+
+**Response to proposals**
+- Low: accepts most suggestions; pushes back only on cost or complexity
+- Medium: asks clarifying questions; connects proposals to things team members have said
+- High: evaluates critically; references past attempts or environment-specific constraints
 
 ## Scenario Authoring Guidelines
-- character_text must contain ZERO platform facts — only identity and communication style
-- tacit items must be written in client's plain language — no technical jargon (SCIM, CMK, NCC etc.)
+- `Identity`, `Maturity Level`, `Team Members`, `Personality` must contain ZERO platform facts
+- Each maturity dimension (technical knowledge, self-awareness, response to proposals) must be explicitly defined — don't leave any as implicit
+- `Personality` is tone and quirks only — no behavioral rules, no maturity-dependent behavior
+- `Team Members` lists names and roles only — their concerns are gated surface/tacit items, not character
+- Tacit items must be written in the client's plain language — no technical jargon (SCIM, CMK, NCC etc.)
 - Technical terms belong only in the Technical Reference section
 - Tier labels on items: TIER 1 (must explore), TIER 2 (good consultants cover), TIER 3 (context)
 
