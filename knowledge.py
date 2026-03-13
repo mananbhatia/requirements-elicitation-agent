@@ -42,7 +42,7 @@ import re
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from langchain_openai import ChatOpenAI
+from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import HumanMessage as LCHumanMessage
 
 
@@ -68,6 +68,7 @@ _CHARACTER_SECTIONS = [
     "maturity level",
     "team members",
     "personality and communication style",
+    "company overview",  # TIER 3 context — Danny knows this freely as manager
 ]
 
 # Which section headers to drop entirely (meta/training context).
@@ -214,12 +215,13 @@ It is NOT genuine if:
 - It asks how a technology works in general, not about this client specifically
 
 ### Output format
-You must output JSON with two fields:
-- "is_genuine": true or false
-- "matched_ids": list with at most one item ID, or empty list
+Output ONLY a JSON object. No reasoning, no explanation, no other text.
 
 If "is_genuine" is false, "matched_ids" MUST be [].
-If "is_genuine" is true, find the single best matching item below or return [].
+If "is_genuine" is true, find the SINGLE MOST DIRECTLY RELEVANT item and return only its ID.
+Even if multiple items seem related, return only the one that most precisely answers what was asked.
+A broad question that touches many topics still earns only the most relevant one — the consultant
+must ask follow-up questions to surface the rest.
 
 SURFACE items:
 {surface_items}
@@ -227,7 +229,8 @@ SURFACE items:
 TACIT items:
 {tacit_items}
 
-Return JSON: {{"is_genuine": true/false, "matched_ids": ["id"] or []}}
+Respond with ONLY this JSON and nothing else — one ID maximum:
+{{"is_genuine": true/false, "matched_ids": ["id"] or []}}
 """
 
 
@@ -255,7 +258,7 @@ def retrieve_relevant_knowledge(
         f'- id: "{t.id}", fact: "{t.content}"' for t in unrevealed_tacit
     ) or "(none remaining)"
 
-    llm = ChatOpenAI(model="gpt-4o", temperature=0.0)
+    llm = ChatAnthropic(model="claude-haiku-4-5-20251001", temperature=0.0)
     prompt = _RETRIEVAL_PROMPT.format(
         question=question,
         recent_context=recent_context or "(start of conversation)",
@@ -266,9 +269,13 @@ def retrieve_relevant_knowledge(
 
     try:
         raw = response.content.strip()
-        if raw.startswith("```"):
-            raw = re.sub(r"^```[a-z]*\n?", "", raw)
-            raw = re.sub(r"\n?```$", "", raw)
+        # Strip markdown code fences if present.
+        if "```" in raw:
+            raw = re.sub(r"```[a-z]*\n?", "", raw).replace("```", "").strip()
+        # Fallback: extract the JSON object from anywhere in the response.
+        json_match = re.search(r"\{.*\}", raw, re.DOTALL)
+        if json_match:
+            raw = json_match.group(0)
         parsed = json.loads(raw)
         if not parsed.get("is_genuine", False):
             return []
@@ -276,5 +283,7 @@ def retrieve_relevant_knowledge(
     except (json.JSONDecodeError, AttributeError):
         matched_ids = []
 
-    all_unrevealed = unrevealed_surface + unrevealed_tacit
-    return [t for t in all_unrevealed if t.id in matched_ids]
+    # Return at most one item, in the order the LLM ranked them (most relevant first).
+    # The LLM decides relevance; the cap enforces the one-item-per-turn rule.
+    all_unrevealed = {t.id: t for t in unrevealed_surface + unrevealed_tacit}
+    return [all_unrevealed[id] for id in matched_ids if id in all_unrevealed][:1]

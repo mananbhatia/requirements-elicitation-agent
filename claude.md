@@ -52,19 +52,20 @@ State: `messages` (conversation history, using add_messages reducer) +
 
 ### Scenario File Structure
 Markdown files in `docs/scenarios/`. Sections classified by header:
-- **CHARACTER** (always visible): four sections, each a distinct authoring knob:
+- **CHARACTER** (always visible): five sections, each a distinct authoring knob:
   - `Identity` — who the client is, their role, company, and meeting context
   - `Maturity Level` — three behavioral dimensions: technical knowledge, self-awareness of problems, response to proposals. Also sets deferral behavior. Set to Low / Medium / High.
   - `Team Members` — names and roles only; who to defer to
   - `Personality and Communication Style` — tone, register, quirks; how they speak, not what they know
-- **SURFACE** (gated): Company Overview, Current Data Platform, What the Client Can Articulate
+  - `Company Overview` — public context the client knows freely as a manager (industry, org structure, strategic direction). TIER 3 only. No platform facts.
+- **SURFACE** (gated): Current Data Platform, What the Client Can Articulate
 - **TACIT** (gated): What the Client Knows But Won't Volunteer [Tacit Knowledge]
 - **DROPPED** (never used): Scope Note, Technical Reference [EVALUATION ONLY]
 
 The Technical Reference section maps client plain language to technical terms — used by
 the evaluator, never seen by the client LLM.
 
-## Synthetic Client Behavior Rules (in client.py)
+## Synthetic Client Behavior Rules (in docs/behavior_rules.md, loaded by client.py)
 Generic rules, scenario-agnostic, based on C-LEIA research principles:
 1. Answer only what was asked — stop there
 2. Never volunteer information
@@ -97,6 +98,7 @@ Three dimensions, each set independently in the `Maturity Level` section of the 
 
 ## Scenario Authoring Guidelines
 - `Identity`, `Maturity Level`, `Team Members`, `Personality` must contain ZERO platform facts
+- `Company Overview` is always visible — only put TIER 3 organisational context here (industry, structure, strategy). No technical platform facts.
 - Each maturity dimension (technical knowledge, self-awareness, response to proposals) must be explicitly defined — don't leave any as implicit
 - `Personality` is tone and quirks only — no behavioral rules, no maturity-dependent behavior
 - `Team Members` lists names and roles only — their concerns are gated surface/tacit items, not character
@@ -140,8 +142,13 @@ agent_v2/
 ├── knowledge.py     # scenario parser, retrieval LLM call
 ├── state.py         # ConversationState TypedDict, custom reducers
 ├── docs/
-│   └── scenarios/
-│       └── waste_management_client.md   # first scenario (GreenCycle Industries)
+│   ├── behavior_rules.md                # generic client behavior rules (loaded by client.py)
+│   ├── scenarios/
+│   │   └── waste_management_client.md   # first scenario (GreenCycle Industries)
+│   ├── evaluation/
+│   │   └── mistake_types.md             # taxonomy of consultant question mistakes
+│   └── research/
+│       └── client_design_principles.md  # C-LEIA-based authoring principles
 └── requirements.txt
 ```
 
