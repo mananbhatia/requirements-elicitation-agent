@@ -48,7 +48,7 @@ Do not volunteer further related details that weren't asked about.
 
 {injected}
 """
-    prompt += "\n\n## REMEMBER\n1–3 sentences max. No fabrication. If you don't know, say so and stop. And no em-dashes (—)\n"
+    prompt += "\n\n## REMEMBER\n1–3 sentences max. No fabrication. If a question is unclear or uses a term you don't recognise, ask what they mean — do not say you don't know. No em-dashes (—)\n"
     
     return prompt
 
