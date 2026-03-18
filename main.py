@@ -23,11 +23,12 @@ from langchain_core.messages import HumanMessage
 from knowledge import load_scenario
 from graph import build_graph
 from eval_graph import build_eval_graph
+from session_logger import save_session
 
 DEFAULT_SCENARIO = Path(__file__).parent / "docs" / "scenarios" / "waste_management_client.md"
 
 
-def _run_evaluation(messages, revealed_items, scenario, graph):
+def _run_evaluation(messages, revealed_items, scenario, graph, scenario_title):
     try:
         answer = input("Run evaluation? (y/n): ").strip().lower()
     except (EOFError, KeyboardInterrupt):
@@ -80,6 +81,7 @@ def _run_evaluation(messages, revealed_items, scenario, graph):
 
         if idx in alternatives:
             alt = alternatives[idx]
+            print(f"  Original response: {alt['original_response']}")
             print(f"  Alternative: {alt['alternative_question']}")
             print(f"  Simulated response: {alt['simulated_response']}")
     print()
@@ -92,6 +94,9 @@ def _run_evaluation(messages, revealed_items, scenario, graph):
         print()
         print(report)
         print()
+
+    log_path = save_session(scenario_title, messages, revealed_items, eval_state)
+    print(f"[LOG] Session saved to {log_path}")
 
 
 def run(scenario_path: str | Path = DEFAULT_SCENARIO):
@@ -131,7 +136,7 @@ Type 'done' or 'exit' when finished.
             consultant_input = input("You: ").strip()
         except (EOFError, KeyboardInterrupt):
             print("\n\n[Interview ended.]")
-            _run_evaluation(messages, revealed_items, scenario, graph)
+            _run_evaluation(messages, revealed_items, scenario, graph, scenario.title)
             break
 
         if not consultant_input:
@@ -139,7 +144,7 @@ Type 'done' or 'exit' when finished.
 
         if consultant_input.lower() in ("done", "exit", "quit"):
             print("\n[Interview ended.]\n")
-            _run_evaluation(messages, revealed_items, scenario, graph)
+            _run_evaluation(messages, revealed_items, scenario, graph, scenario.title)
             break
 
         messages.append(HumanMessage(content=consultant_input))

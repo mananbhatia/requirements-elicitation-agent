@@ -131,19 +131,21 @@ def _format_annotations(annotations: list) -> str:
 
 def _format_alternatives(alternatives: list) -> str:
     if not alternatives:
-        return "(no simulated alternatives — all evaluated turns were effective)"
+        return "(no simulated alternatives — all evaluated turns were well-formed and elicited information)"
     parts = []
     for alt in alternatives:
         idx = alt.get("turn_index", "?")
         original = alt.get("original_question", "")
+        original_response = alt.get("original_response", "")
         alternative = alt.get("alternative_question", "")
         simulated = alt.get("simulated_response", "")
 
         parts.append(
             f"Turn {idx}:\n"
-            f"  Original:   \"{original}\"\n"
-            f"  Alternative: \"{alternative}\"\n"
-            f"  Simulated client response: {simulated}"
+            f"  Original question:          \"{original}\"\n"
+            f"  Client's actual response:   {original_response}\n"
+            f"  Alternative question:       \"{alternative}\"\n"
+            f"  Simulated client response:  {simulated}"
         )
     return "\n\n".join(parts)
 

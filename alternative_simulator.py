@@ -11,6 +11,7 @@ Returns simulated_alternatives — list of dicts:
   {
     "turn_index": int,
     "original_question": str,
+    "original_response": str,
     "alternative_question": str,
     "simulated_response": str
   }
@@ -136,6 +137,16 @@ def build_alternative_simulator(conversation_graph):
                 print(f"[SIM]   Could not locate turn {turn_index} in transcript, skipping.")
                 continue
 
+            # Extract the client's actual response to the original question (next message).
+            original_response = ""
+            if msg_idx + 1 < len(messages):
+                next_msg = messages[msg_idx + 1]
+                if hasattr(next_msg, "content"):
+                    original_response = next_msg.content
+                elif isinstance(next_msg, dict):
+                    original_response = next_msg.get("content", "")
+            print(f"[SIM]   Original response: {original_response!r}")
+
             # Stage A: build prior transcript — everything BEFORE this question.
             # The generator must not see the client's response to the original question.
             prior_messages = messages[:msg_idx]
@@ -178,6 +189,7 @@ def build_alternative_simulator(conversation_graph):
             results.append({
                 "turn_index": turn_index,
                 "original_question": original_question,
+                "original_response": original_response,
                 "alternative_question": alternative_question,
                 "simulated_response": simulated_response,
             })
