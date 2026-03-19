@@ -241,7 +241,7 @@ def _render_evaluation():
                 alt = alternatives.get(idx)
 
                 with st.expander(f"{icon} Turn {idx}: {question[:80]}{'...' if len(question) > 80 else ''}"):
-                    st.markdown(f"**Question:** {question}")
+                    # Assessment badges
                     col1, col2 = st.columns(2)
                     with col1:
                         status = "✅ Yes" if well_formed else "🔴 No"
@@ -254,19 +254,26 @@ def _render_evaluation():
                         st.markdown("**Mistakes:**")
                         for m in mistakes:
                             st.markdown(f"- `{m['mistake_type']}` — {m['explanation']}")
-                    else:
-                        st.markdown("**Mistakes:** None")
 
                     st.divider()
-                    client_response = alt["original_response"] if alt else _get_client_response(idx)
-                    st.markdown("**Client's response:**")
-                    st.markdown(f"> {client_response}")
 
-                    if alt:
-                        st.markdown("**Alternative question:**")
-                        st.markdown(f"> {alt['alternative_question']}")
-                        st.markdown("**Simulated response to alternative:**")
-                        st.markdown(f"> {alt['simulated_response']}")
+                    client_response = alt["original_response"] if alt else _get_client_response(idx)
+                    left, right = st.columns(2)
+
+                    with left:
+                        st.markdown("**Original question**")
+                        st.markdown(f"> {question}")
+                        st.markdown("**Client's response**")
+                        st.markdown(f"> {client_response}")
+
+                    with right:
+                        if alt:
+                            st.markdown("**Alternative question**")
+                            st.markdown(f"> {alt['alternative_question']}")
+                            st.markdown("**Simulated response**")
+                            st.markdown(f"> {alt['simulated_response']}")
+                        else:
+                            st.markdown("*No alternative generated — question was well-formed and elicited information.*")
 
     with tab_report:
         if not report:
