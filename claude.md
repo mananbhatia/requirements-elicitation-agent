@@ -27,13 +27,19 @@ The synthetic client cannot reveal what it cannot see. All scenario knowledge is
 
 ### Retrieval System
 Each consultant turn runs through a retrieval LLM call (Claude Haiku, temp 0.0) before the
-client responds. The retrieval decides whether the question is genuine and specific enough
-to unlock a new fact. Returns at most ONE item per turn.
+client responds. The retrieval gate decides whether the question is genuine and, if so, which
+items it earned. The number of items returned is an output of the relevance judgment — not a
+hard cap. Follows Grice's Maxim of Quantity: items returned should be proportional to what
+the question covered.
 
-Retrieval uses a two-step approach:
+Retrieval uses a three-step approach:
 1. Structural check: does the input contain a verb or question word? Bare noun phrases fail immediately.
 2. Intent check: does it ask about this client's specific situation? Topic references ("SCIM?",
    "what about X?") are disqualified. Catch-alls are disqualified.
+3. Relevance matching: each unrevealed item is assessed independently. Tacit items require a
+   stricter bar (question must ask about current state/process, not just the topic area).
+   Calibration: most questions match 1–2 items; a well-targeted question might match 3–4;
+   matching 5+ is rare.
 
 The last 2 conversation turns are passed as context so follow-up questions resolve correctly
 (e.g. "is it acceptance or production?" maps to PowerBI after discussing PowerBI).
@@ -222,10 +228,10 @@ agent_v2/
 ## Key Design Decisions
 - **No facts in character_text**: the only reliable way to prevent leakage is to not give
   the LLM the information at all. Rules cannot reliably suppress what the LLM can see.
-- **One item per turn**: forces consultants to ask specific follow-up questions; prevents
-  information dumps from single vague questions.
 - **Retrieval is a gate, not a search**: the retrieval LLM's job is to disqualify, not to find.
-  Most turns should return nothing. Specific, well-formed questions earn one fact.
+  Most turns should return nothing. The number of items returned is proportional to what the
+  question earned — a vague question earns nothing, a well-targeted question covering multiple
+  dimensions of a topic can earn several.
 - **Plain language in tacit items**: technical terms in scenario items caused the client to
   use jargon it couldn't explain, creating incoherence. Danny speaks Danny's language.
 - **Context passed to retrieval**: last 2 turns of conversation passed so follow-up questions

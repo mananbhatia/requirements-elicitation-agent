@@ -16,8 +16,9 @@ Parses any scenario markdown file into three layers:
                     current state or process for that topic.
                     Parsed from: What the Client Knows But Won't Volunteer.
 
-Both surface and tacit items are injected into the system prompt only after
-the consultant earns them. The LLM cannot reveal what it cannot see.
+Surface and tacit items are injected into the system prompt only after the consultant
+earns them. The LLM cannot reveal what it cannot see. The number of items returned per
+turn is an output of the relevance judgment — proportional to what the question earned.
 
 Scenario markdown sections are classified as follows:
   CHARACTER sections (kept in character_text):
@@ -182,7 +183,7 @@ def load_scenario(path: str | Path) -> Scenario:
 # Retrieval
 # ---------------------------------------------------------------------------
 
-_RETRIEVAL_PROMPT = """A consultant is interviewing a client about their Databricks setup.
+_RETRIEVAL_PROMPT = """A consultant is interviewing a client about their current setup and situation.
 
 Recent conversation (for context):
 {recent_context}
@@ -191,7 +192,7 @@ The consultant's latest input: "{question}"
 
 ## YOUR TASK
 
-First decide if this is a genuine question. Then, only if it is, find a matching item.
+First decide if this is a genuine question. Then, only if it is, find matching items.
 
 ### Step 1: Structural check (do this first)
 Does the input contain at least one verb or explicit question word?
@@ -214,14 +215,17 @@ It is NOT genuine if:
 - It is a catch-all: "anything else?", "tell me more", "share more"
 - It asks how a technology works in general, not about this client specifically
 
-### Output format
-Output ONLY a JSON object. No reasoning, no explanation, no other text.
+### Step 3: Relevance matching (only if steps 1 and 2 pass)
+For each unrevealed item below, ask: does this question directly address the specific
+topic this item describes? Assess each item independently.
 
-If "is_genuine" is false, "matched_ids" MUST be [].
-If "is_genuine" is true, find the SINGLE MOST DIRECTLY RELEVANT item and return only its ID.
-Even if multiple items seem related, return only the one that most precisely answers what was asked.
-A broad question that touches many topics still earns only the most relevant one — the consultant
-must ask follow-up questions to surface the rest.
+Apply a stricter bar for TACIT items than SURFACE items — a tacit item is only earned
+if the question asks specifically about the current state or process for that topic,
+not just the topic area in general.
+
+Calibration: most questions match 1–2 items. A well-targeted question covering multiple
+dimensions of the same topic might match 3–4. Matching 5 or more should be rare and only
+when the question genuinely covers each of those topics explicitly.
 
 SURFACE items:
 {surface_items}
@@ -229,8 +233,11 @@ SURFACE items:
 TACIT items:
 {tacit_items}
 
-Respond with ONLY this JSON and nothing else — one ID maximum:
-{{"is_genuine": true/false, "matched_ids": ["id"] or []}}
+### Output format
+Output ONLY a JSON object. No reasoning, no explanation, no other text.
+If "is_genuine" is false, "matched_ids" MUST be [].
+
+{{"is_genuine": true/false, "matched_ids": ["id", ...] or []}}
 """
 
 
@@ -283,7 +290,7 @@ def retrieve_relevant_knowledge(
     except (json.JSONDecodeError, AttributeError):
         matched_ids = []
 
-    # Return at most one item, in the order the LLM ranked them (most relevant first).
-    # The LLM decides relevance; the cap enforces the one-item-per-turn rule.
+    # Return all items the LLM judged relevant — count is a product of the relevance
+    # judgment, not an externally imposed cap.
     all_unrevealed = {t.id: t for t in unrevealed_surface + unrevealed_tacit}
-    return [all_unrevealed[id] for id in matched_ids if id in all_unrevealed][:1]
+    return [all_unrevealed[id] for id in matched_ids if id in all_unrevealed]
