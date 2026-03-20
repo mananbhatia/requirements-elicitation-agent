@@ -258,22 +258,51 @@ def _render_evaluation():
                     st.divider()
 
                     client_response = alt["original_response"] if alt else _get_client_response(idx)
-                    left, right = st.columns(2)
 
-                    with left:
-                        st.markdown("**Original question**")
-                        st.markdown(f"> {question}")
-                        st.markdown("**Client's response**")
-                        st.markdown(f"> {client_response}")
+                    def _esc(text: str) -> str:
+                        return text.replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br>")
 
-                    with right:
-                        if alt:
-                            st.markdown("**Alternative question**")
-                            st.markdown(f"> {alt['alternative_question']}")
-                            st.markdown("**Simulated response**")
-                            st.markdown(f"> {alt['simulated_response']}")
-                        else:
-                            st.markdown("*No alternative generated — question was well-formed and elicited information.*")
+                    if alt:
+                        alt_wf = alt.get("alt_is_well_formed", True)
+                        alt_ie = alt.get("alt_information_elicited", True)
+                        verdict = alt.get("improvement_verdict", "")
+                        alt_wf_badge = "✅ Yes" if alt_wf else "🔴 No"
+                        alt_ie_badge = "✅ Yes" if alt_ie else "⚠️ No"
+                        right_q_cell = (
+                            f"{_esc(alt['alternative_question'])}<br><br>"
+                            f"<small><strong>Well-formed:</strong> {alt_wf_badge} &nbsp; "
+                            f"<strong>Info elicited:</strong> {alt_ie_badge}</small>"
+                        )
+                        right_r_cell = _esc(alt["simulated_response"])
+                    else:
+                        right_q_cell = "—"
+                        right_r_cell = "—"
+                        verdict = ""
+
+                    st.markdown(f"""
+<table style="width:100%; border-collapse:collapse; font-size:0.9em;">
+  <thead>
+    <tr>
+      <th style="width:50%; border:1px solid #ddd; padding:8px; background:#f8f9fa;">Original</th>
+      <th style="width:50%; border:1px solid #ddd; padding:8px; background:#f8f9fa;">Alternative</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td style="border:1px solid #ddd; padding:8px; vertical-align:top;"><strong>Question</strong><br><br>{_esc(question)}</td>
+      <td style="border:1px solid #ddd; padding:8px; vertical-align:top;"><strong>Question</strong><br><br>{right_q_cell}</td>
+    </tr>
+    <tr>
+      <td style="border:1px solid #ddd; padding:8px; vertical-align:top;"><strong>Client's response</strong><br><br>{_esc(client_response)}</td>
+      <td style="border:1px solid #ddd; padding:8px; vertical-align:top;"><strong>Simulated response</strong><br><br>{right_r_cell}</td>
+    </tr>
+  </tbody>
+</table>
+""", unsafe_allow_html=True)
+                    if verdict:
+                        st.caption(f"**Verdict:** {verdict}")
+                    elif not alt:
+                        st.caption("No alternative generated — question was well-formed and elicited information.")
 
     with tab_report:
         if not report:

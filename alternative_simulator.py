@@ -6,6 +6,9 @@ For each turn where is_well_formed is false OR information_elicited is false:
              (everything BEFORE the original question, no client response to it).
   Stage B — Simulate the client's response by invoking the conversation graph
              with the alternative question in place of the original.
+  Stage C — Evaluate the alternative question and compare both response pairs.
+             Produces alt_is_well_formed, alt_information_elicited, and a
+             one-sentence improvement_verdict.
 
 Returns simulated_alternatives — list of dicts:
   {
@@ -13,19 +16,20 @@ Returns simulated_alternatives — list of dicts:
     "original_question": str,
     "original_response": str,
     "alternative_question": str,
-    "simulated_response": str
+    "simulated_response": str,
+    "alt_is_well_formed": bool,
+    "alt_information_elicited": bool,
+    "improvement_verdict": str
   }
 """
 
-from pathlib import Path
+import re
+import json
 from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import HumanMessage, AIMessage
 
 from evaluation_state import EvaluationState
-
-_MISTAKE_TYPES = (
-    Path(__file__).parent / "docs" / "evaluation" / "mistake_types.md"
-).read_text()
+from evaluator_core import MISTAKE_TYPES, format_transcript, evaluate_turn
 
 _ALT_PROMPT = """\
 You are helping a consultant improve their requirements interview technique.
@@ -68,6 +72,38 @@ alternative must be specific. Review your generated question against the 14 mist
 before returning it.
 
 Return only the question text. No explanation, no preamble, no quotation marks.
+"""
+
+
+_VERDICT_PROMPT = """\
+You are comparing an original consultant question with an improved alternative, \
+and explaining what changed and what it produced.
+
+## Original question and client's actual response
+
+Original question: "{original_question}"
+Client's actual response: {original_response}
+
+## Alternative question and simulated client response
+
+Alternative question: "{alternative_question}"
+Simulated client response: {simulated_response}
+
+## Your task
+
+Write one sentence describing what specifically changed between the original and the \
+alternative, and what that produced in the client's response. Be concrete about both \
+the question change and the response outcome.
+
+Examples of the right level of specificity:
+- "The alternative asked specifically about who approves access requests, which prompted \
+the client to name the process and flag that it's manual and slow."
+- "Despite a cleaner question framing, the client still couldn't answer — this topic \
+appears to be outside their knowledge."
+- "The alternative removed the jargon but the client's response was equally vague, \
+suggesting the problem is topic depth rather than phrasing."
+
+Return only the verdict sentence. No explanation, no preamble, no quotation marks.
 """
 
 
@@ -160,7 +196,7 @@ def build_alternative_simulator(conversation_graph):
                 prior_transcript=prior_transcript,
                 original_question=original_question,
                 mistake_summary=mistake_summary,
-                mistake_types=_MISTAKE_TYPES,
+                mistake_types=MISTAKE_TYPES,
             )
 
             try:
@@ -186,12 +222,40 @@ def build_alternative_simulator(conversation_graph):
                 print(f"[SIM]   Failed to simulate response for turn {turn_index}: {e}")
                 continue
 
+            # Stage C: evaluate the alternative question and generate improvement verdict.
+            # Build a mini-transcript: prior context + alternative Q + simulated response.
+            mini_transcript = format_transcript(prior_messages) + (
+                f"\nConsultant: {alternative_question}"
+                f"\nClient: {simulated_response}"
+            )
+            alt_annotation = evaluate_turn(alternative_question, mini_transcript, turn_index)
+            alt_is_well_formed = alt_annotation.get("is_well_formed", True) if alt_annotation else True
+            alt_information_elicited = alt_annotation.get("information_elicited", True) if alt_annotation else True
+            print(f"[SIM]   Alt well-formed: {alt_is_well_formed} | Alt info elicited: {alt_information_elicited}")
+
+            verdict_prompt = _VERDICT_PROMPT.format(
+                original_question=original_question,
+                original_response=original_response,
+                alternative_question=alternative_question,
+                simulated_response=simulated_response,
+            )
+            try:
+                verdict_response = llm.invoke([HumanMessage(content=verdict_prompt)])
+                improvement_verdict = verdict_response.content.strip()
+                print(f"[SIM]   Verdict: {improvement_verdict!r}")
+            except Exception as e:
+                improvement_verdict = ""
+                print(f"[SIM]   Failed to generate verdict for turn {turn_index}: {e}")
+
             results.append({
                 "turn_index": turn_index,
                 "original_question": original_question,
                 "original_response": original_response,
                 "alternative_question": alternative_question,
                 "simulated_response": simulated_response,
+                "alt_is_well_formed": alt_is_well_formed,
+                "alt_information_elicited": alt_information_elicited,
+                "improvement_verdict": improvement_verdict,
             })
 
         return {"simulated_alternatives": results}

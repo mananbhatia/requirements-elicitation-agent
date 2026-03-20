@@ -55,30 +55,27 @@ Two separate analyses:
 
 First, mistake patterns (is_well_formed: false). Group by mistake type across all turns. \
 For each mistake type that appeared more than once: name it, describe the pattern, give one \
-concrete example by quoting the original question (with its turn number), explain why it \
-was a mistake, and — if a simulated alternative exists for that turn — quote the alternative \
-question and the simulated client response as evidence of what a better question unlocks. \
-If the simulated alternative got the same deflection or vague response as the original, \
-note that this topic may need a fundamentally different approach. For mistake types that \
-appeared only once, mention them briefly without a full example. If no mistakes recurred, \
-say so clearly.
+concrete example by quoting the original question (with its turn number), and use the \
+improvement verdict from the alternatives section as evidence — quote it directly. Prefer \
+turns where alt_information_elicited is true as your primary example, since these prove the \
+fix worked. If the alternative also failed (alt_information_elicited: false), note that \
+even a better-formed question did not help, and use the verdict to explain why. For mistake \
+types that appeared only once, mention them briefly without a full example. If no mistakes \
+recurred, say so clearly.
 
-Second, well-formed questions that did not elicit information. Use the "Turns well-formed \
-but no information elicited" count from the statistics. Identify which turns these were \
-from the annotations (is_well_formed: true, information_elicited: false). For each such \
-turn, look at the client's actual response in the transcript to determine why no information \
-was elicited — did the client defer to a colleague, say they didn't know, ask for \
-clarification, or give a vague non-answer? Only report a pattern if multiple turns share \
-the same root cause. A single incident does not warrant a general recommendation. If a \
-pattern exists, describe what it reveals about where the consultant directed their questions \
-relative to what this client could actually answer, and what that implies for how to \
-structure the next conversation.
+Second, well-formed questions that did not elicit information (is_well_formed: true, \
+information_elicited: false). For each such turn that has a simulated alternative, use the \
+improvement verdict to characterise what happened — did the alternative unlock something, \
+or did both fail? Only report a pattern if multiple turns share the same root cause. A \
+single incident does not warrant a general recommendation.
 
 **START**
 2–4 actionable recommendations derived from the actual failures above. Draw from both \
 failure types: mistake patterns (where phrasing needs to change) and well-formed questions \
 that got no information (where the consultant may need to read client knowledge level cues \
-better and pivot earlier). Be concrete — tell them exactly what to do differently.
+better and pivot earlier). Where a simulated alternative proved the fix worked \
+(alt_information_elicited: true), use it as a concrete illustration of the recommendation. \
+Be concrete — tell them exactly what to do differently.
 
 Format rules:
 - Use plain text with the section headers: SUMMARY, CONTINUE, STOP, START
@@ -139,13 +136,19 @@ def _format_alternatives(alternatives: list) -> str:
         original_response = alt.get("original_response", "")
         alternative = alt.get("alternative_question", "")
         simulated = alt.get("simulated_response", "")
+        alt_well_formed = alt.get("alt_is_well_formed", True)
+        alt_info_elicited = alt.get("alt_information_elicited", True)
+        verdict = alt.get("improvement_verdict", "")
 
         parts.append(
             f"Turn {idx}:\n"
-            f"  Original question:          \"{original}\"\n"
-            f"  Client's actual response:   {original_response}\n"
-            f"  Alternative question:       \"{alternative}\"\n"
-            f"  Simulated client response:  {simulated}"
+            f"  Original question:              \"{original}\"\n"
+            f"  Client's actual response:       {original_response}\n"
+            f"  Alternative question:           \"{alternative}\"\n"
+            f"  Alternative well-formed:        {'yes' if alt_well_formed else 'no'}\n"
+            f"  Simulated client response:      {simulated}\n"
+            f"  Alternative info elicited:      {'yes' if alt_info_elicited else 'no'}\n"
+            f"  Improvement verdict:            {verdict}"
         )
     return "\n\n".join(parts)
 
@@ -167,6 +170,11 @@ def _compute_stats(annotations: list) -> str:
             mt = m.get("mistake_type", "unknown")
             mistake_counts[mt] = mistake_counts.get(mt, 0) + 1
 
+    gold_examples = sum(
+        1 for a in annotations
+        if not a.get("information_elicited", True)
+    )  # turns where original failed — alternatives for these are the most instructive
+
     lines = [
         f"Total consultant turns evaluated: {total}",
         f"Turns with no mistakes (is_well_formed: true): {no_mistakes}",
@@ -174,6 +182,7 @@ def _compute_stats(annotations: list) -> str:
         f"Turns that elicited information (information_elicited: true): {elicited}",
         f"Turns that did not elicit information (information_elicited: false): {not_elicited}",
         f"Turns well-formed but no information elicited: {well_formed_no_info}",
+        f"Turns where original failed to elicit information (candidate gold examples): {gold_examples}",
     ]
     if mistake_counts:
         freq = ", ".join(
