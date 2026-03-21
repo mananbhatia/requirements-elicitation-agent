@@ -94,8 +94,17 @@ def build_nodes(scenario: Scenario):
             already_revealed_ids,
             recent_context=recent_context,
         )
-        # Convert dataclasses to dicts for storage in state.
-        return {"revealed_items": [vars(item) for item in newly_revealed]}
+        # Current consultant turn index (1-based, excluding the hidden opening prompt).
+        turn_index = sum(
+            1 for m in messages
+            if isinstance(m, HumanMessage)
+            and not m.content.startswith("[Start of interview")
+        )
+        # Convert dataclasses to dicts and stamp which turn unlocked each item.
+        return {"revealed_items": [
+            {**vars(item), "unlocked_at_turn": turn_index}
+            for item in newly_revealed
+        ]}
 
     def client_node(state: ConversationState) -> dict:
         """
@@ -103,7 +112,13 @@ def build_nodes(scenario: Scenario):
         then calls the LLM. The model cannot leak what isn't in the prompt.
         """
         revealed_items = [
-            ScenarioItem(**item) for item in state.get("revealed_items", [])
+            ScenarioItem(
+                id=item["id"],
+                content=item["content"],
+                layer=item["layer"],
+                topic=item.get("topic", ""),
+            )
+            for item in state.get("revealed_items", [])
         ]
         system_prompt = _build_system_prompt(scenario.character_text, revealed_items)
         messages_with_system = [SystemMessage(content=system_prompt)] + state["messages"]
