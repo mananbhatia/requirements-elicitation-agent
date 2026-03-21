@@ -37,11 +37,15 @@ def _run_evaluation(messages, revealed_items, scenario, graph, scenario_title):
         return
 
     eval_graph = build_eval_graph(graph)
+    all_items = [vars(item) for item in scenario.surface_items + scenario.tacit_items]
     eval_state = eval_graph.invoke({
         "transcript": messages,
         "revealed_items": revealed_items,
+        "topic_taxonomy": scenario.topic_taxonomy,
+        "scenario_items": all_items,
         "turn_annotations": [],
         "simulated_alternatives": [],
+        "topic_coverage": {},
         "report": "",
     })
 

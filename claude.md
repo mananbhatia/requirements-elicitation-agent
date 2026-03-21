@@ -89,13 +89,17 @@ Result dict per alternative:
 alt_is_well_formed, alt_information_elicited, improvement_verdict`
 
 **Node 3 — report_generator**
-One LLM call (Databricks GPT-OSS-120B, temp 0.3, reasoning_effort=high) that receives the full transcript, all annotations,
-and all alternatives, then writes the feedback report in SUMMARY / CONTINUE / STOP / START format.
-Statistics (turn counts, mistake frequencies, gold example count) are computed in Python
-and passed as hard facts — the LLM is told not to recalculate.
+One LLM call (Databricks GPT-OSS-120B, temp 0.3, reasoning_effort=high) that receives the full transcript,
+all annotations, all alternatives, and pre-computed topic coverage stats. Writes the feedback report in
+SUMMARY / COVERAGE / CONTINUE / STOP / START format. Statistics (turn counts, mistake frequencies) and
+coverage stats (topics/subtopics covered vs total, per-topic breakdown) are computed in Python before
+the LLM call — the LLM is told not to recalculate.
 
 The prompt prioritises turns where `alt_information_elicited` flipped from false to true
 as primary examples in Stop/Start — these are the gold examples with proven improvement.
+
+Coverage computation (`_compute_coverage()`) runs before the LLM call and its result is stored in
+`EvaluationState.topic_coverage` so Streamlit can render the coverage UI independently of the report.
 
 ### Shared Evaluation Logic — evaluator_core.py
 `MISTAKE_TYPES`, `format_transcript`, and `evaluate_turn()` live here.
@@ -181,10 +185,15 @@ Three dimensions, each set independently in the `Maturity Level` section of the 
 - One-sentence improvement verdict comparing both question/response pairs
 - Feedback report with SUMMARY / CONTINUE / STOP / START using gold examples as evidence
 
+### Topic coverage (complete)
+- Computed from `revealed_items` topic codes vs. all scenario items' topic codes
+- Binary per subtopic: covered if any item with that subtopic was revealed
+- A top-level topic is fully/partially/not covered based on its subtopics
+- Stats pre-computed in Python (`_compute_coverage()` in `report_generator.py`)
+- Passed to report LLM as hard facts; LLM writes the COVERAGE section of the report
+- Also rendered in Streamlit as an expandable per-topic summary before the eval tabs
+
 ### Not yet built
-- **Solution space coverage**: which topics did the consultant reach vs. miss?
-  (`revealed_items` with topic tags are in `EvaluationState` in anticipation; a topic-based coverage
-  system will replace the removed tier-based `scenario_items_total` field)
 - **Interaction strategy**: did the consultant ask questions only, or also propose solutions?
 - **Adaptability**: did the consultant adapt to the client's knowledge level over time?
 
@@ -194,6 +203,7 @@ After each evaluation, `session_logger.py` saves a JSON file to `logs/`:
 
 Contains: timestamp, scenario title, transcript (role+content), revealed items (id/content/layer/topic),
 turn_annotations, simulated_alternatives (including all Stage C fields), report string, summary_stats.
+Note: `topic_coverage` is stored in `EvaluationState` but not currently persisted to the session log.
 
 `logs/` is gitignored.
 

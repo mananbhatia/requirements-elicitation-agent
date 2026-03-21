@@ -195,11 +195,15 @@ def _run_evaluation():
     ]
     n_turns = len(consultant_turns)
 
+    all_items = [vars(item) for item in scenario.surface_items + scenario.tacit_items]
     state = {
         "transcript": messages,
         "revealed_items": st.session_state.revealed_items,
+        "topic_taxonomy": scenario.topic_taxonomy,
+        "scenario_items": all_items,
         "turn_annotations": [],
         "simulated_alternatives": [],
+        "topic_coverage": {},
         "report": "",
     }
 
@@ -286,6 +290,48 @@ def _turn_icon(well_formed: bool, info_elicited: bool) -> str:
     return "🔴"
 
 
+def _render_coverage(eval_state: dict):
+    """Render a topic coverage summary above the evaluation tabs."""
+    coverage = eval_state.get("topic_coverage", {})
+    if not coverage:
+        return
+
+    scenario = get_scenario(st.session_state.scenario_path)
+    taxonomy = scenario.topic_taxonomy
+
+    n_top = coverage.get("topics_covered", 0)
+    n_top_total = coverage.get("topics_total", 0)
+    n_sub = coverage.get("subtopics_covered", 0)
+    n_sub_total = coverage.get("subtopics_total", 0)
+
+    st.markdown("### Topic Coverage")
+    st.markdown(f"**{n_top} / {n_top_total} topics** &nbsp;·&nbsp; **{n_sub} / {n_sub_total} subtopics**", unsafe_allow_html=True)
+
+    covered_set = set(coverage.get("subtopics_covered_list", []))
+    fully_covered = set(coverage.get("topics_fully_covered", []))
+    partially_covered = set(coverage.get("topics_partially_covered", []))
+    parent_to_subtopics = coverage.get("parent_to_subtopics", {})
+
+    for parent_code in sorted(parent_to_subtopics):
+        subtopics = parent_to_subtopics[parent_code]
+        parent_display = taxonomy.get(parent_code, parent_code)
+
+        if parent_code in fully_covered:
+            icon = "✅"
+        elif parent_code in partially_covered:
+            icon = "⚠️"
+        else:
+            icon = "🔴"
+
+        with st.expander(f"{icon} {parent_display}"):
+            for sub_code in subtopics:
+                sub_display = taxonomy.get(sub_code, sub_code)
+                sub_icon = "✅" if sub_code in covered_set else "🔴"
+                st.markdown(f"{sub_icon} {sub_display}")
+
+    st.divider()
+
+
 def _render_evaluation():
     eval_state = st.session_state.eval_state
     annotations = eval_state.get("turn_annotations", [])
@@ -297,6 +343,8 @@ def _render_evaluation():
 
     if st.session_state.log_path:
         st.info(f"Session logged to {st.session_state.log_path}")
+
+    _render_coverage(eval_state)
 
     tab_turns, tab_report = st.tabs(["Turn-by-Turn Analysis", "Feedback Report"])
 
@@ -390,7 +438,7 @@ def _render_evaluation():
             # Render section headers as visual separators
             for line in report.split("\n"):
                 stripped = line.strip()
-                if stripped in ("SUMMARY", "CONTINUE", "STOP", "START"):
+                if stripped in ("SUMMARY", "COVERAGE", "CONTINUE", "STOP", "START"):
                     st.markdown(f"### {stripped}")
                 else:
                     st.markdown(line)
