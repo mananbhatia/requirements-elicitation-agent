@@ -112,14 +112,14 @@ Markdown files in `docs/scenarios/`. Sections classified by header:
   - `Maturity Level` — three behavioral dimensions: technical knowledge, self-awareness of problems, response to proposals. Also sets deferral behavior. Set to Low / Medium / High.
   - `Team Members` — names and roles only; who to defer to
   - `Personality and Communication Style` — tone, register, quirks; how they speak, not what they know
-  - `Company Overview` — public context the client knows freely as a manager (industry, org structure, strategic direction). TIER 3 only. No platform facts.
+  - `Company Overview` — public context the client knows freely as a manager (industry, org structure, strategic direction). Always visible. No platform facts.
 - **SURFACE** (gated): Current Data Platform, What the Client Can Articulate
 - **TACIT** (gated): What the Client Knows But Won't Volunteer [Tacit Knowledge]
 - **DROPPED** (never used): Scope Note, Technical Reference [EVALUATION ONLY]
 
 Items in SURFACE and TACIT sections may carry `[topic: code]` inline tags (e.g. `[topic: iam/provisioning]`)
 to associate them with the topic taxonomy. The tag is stripped from the item content before injection.
-TIER 1 and TIER 2 items should be tagged; TIER 3 context items typically are not.
+Items without a topic tag still work — they just won't link to any taxonomy entry.
 
 The Technical Reference section maps client plain language to technical terms — used by
 the evaluator, never seen by the client LLM.
@@ -159,7 +159,7 @@ Three dimensions, each set independently in the `Maturity Level` section of the 
 
 ## Scenario Authoring Guidelines
 - `Identity`, `Maturity Level`, `Team Members`, `Personality` must contain ZERO platform facts
-- `Company Overview` is always visible — only put TIER 3 organisational context here (industry, structure, strategy). No technical platform facts.
+- `Company Overview` is always visible — only put organisational context here (industry, structure, strategy). No technical platform facts.
 - Each maturity dimension (technical knowledge, self-awareness, response to proposals) must be explicitly defined — don't leave any as implicit
 - `Personality` is tone and quirks only — no behavioral rules, no maturity-dependent behavior
 - `Team Members` lists names and roles only — their concerns are gated surface/tacit items, not character.
@@ -167,8 +167,7 @@ Three dimensions, each set independently in the `Maturity Level` section of the 
   Consultants should relay secondhand knowledge using "from what XYZ tells me..." instead.
 - Tacit items must be written in the client's plain language — no technical jargon (SCIM, CMK, NCC etc.)
 - Technical terms belong only in the Technical Reference section
-- Tier labels on items: TIER 1 (must explore), TIER 2 (good consultants cover), TIER 3 (context)
-- TIER 1 and TIER 2 items should carry `[topic: code]` tags matching the `Topics` taxonomy
+- Items should carry `[topic: code]` tags matching the `Topics` taxonomy where applicable
 - Add a `Consultant Briefing` section at the top with engagement context (client name, meeting type, scope)
 - Add a `Topics` section listing all topic codes and display names for the sidebar taxonomy
 
@@ -183,8 +182,9 @@ Three dimensions, each set independently in the `Maturity Level` section of the 
 - Feedback report with SUMMARY / CONTINUE / STOP / START using gold examples as evidence
 
 ### Not yet built
-- **Solution space coverage**: which TIER 1 items did the consultant reach vs. miss?
-  (`scenario_items_total` and `revealed_items` are already in `EvaluationState` in anticipation)
+- **Solution space coverage**: which topics did the consultant reach vs. miss?
+  (`revealed_items` with topic tags are in `EvaluationState` in anticipation; a topic-based coverage
+  system will replace the removed tier-based `scenario_items_total` field)
 - **Interaction strategy**: did the consultant ask questions only, or also propose solutions?
 - **Adaptability**: did the consultant adapt to the client's knowledge level over time?
 
@@ -192,7 +192,7 @@ Three dimensions, each set independently in the `Maturity Level` section of the 
 After each evaluation, `session_logger.py` saves a JSON file to `logs/`:
 `logs/session_YYYY-MM-DD_HH-MM-SS.json`
 
-Contains: timestamp, scenario title, transcript (role+content), revealed items (id/content/tier/layer/**topic**),
+Contains: timestamp, scenario title, transcript (role+content), revealed items (id/content/layer/topic),
 turn_annotations, simulated_alternatives (including all Stage C fields), report string, summary_stats.
 
 `logs/` is gitignored.
@@ -284,7 +284,8 @@ agent_v2/
   both an authoring reference (which topic codes to use in `[topic: X]` tags) and the
   source for the sidebar "Topics to cover" display. Parent topics are bold; subtopics shown
   as dot-separated captions. Items without a topic tag still work — they just won't link to
-  any taxonomy entry.
+  any taxonomy entry. The tier system (TIER 1/2/3) has been removed; topic coverage will
+  replace it as the coverage metric in a future change.
 - **Deferral is a last resort**: rewriting behavior rules from "hostile witness" to Grice's
   Cooperative Principle. The client relays secondhand knowledge from colleagues rather than
   redirecting. Rule 7 distinguishes unclear framing (answer + flag) from genuinely ambiguous

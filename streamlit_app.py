@@ -185,11 +185,6 @@ def _run_evaluation():
     conv_graph = get_conversation_graph(st.session_state.scenario_path)
     alternative_simulator = build_alternative_simulator(conv_graph)
 
-    tier1_total = sum(
-        1 for item in scenario.surface_items + scenario.tacit_items
-        if item.tier == "TIER 1"
-    )
-
     messages = st.session_state.lc_messages
 
     # Count consultant turns (excluding hidden opening prompt) for progress tracking.
@@ -203,7 +198,6 @@ def _run_evaluation():
     state = {
         "transcript": messages,
         "revealed_items": st.session_state.revealed_items,
-        "scenario_items_total": tier1_total,
         "turn_annotations": [],
         "simulated_alternatives": [],
         "report": "",

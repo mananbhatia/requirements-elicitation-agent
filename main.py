@@ -36,15 +36,10 @@ def _run_evaluation(messages, revealed_items, scenario, graph, scenario_title):
     if answer != "y":
         return
 
-    tier1_total = sum(
-        1 for item in scenario.surface_items + scenario.tacit_items
-        if item.tier == "TIER 1"
-    )
     eval_graph = build_eval_graph(graph)
     eval_state = eval_graph.invoke({
         "transcript": messages,
         "revealed_items": revealed_items,
-        "scenario_items_total": tier1_total,
         "turn_annotations": [],
         "simulated_alternatives": [],
         "report": "",

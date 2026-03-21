@@ -53,7 +53,6 @@ from langchain_core.messages import HumanMessage as LCHumanMessage
 class ScenarioItem:
     id: str      # slug derived from content
     content: str # the fact — injected into system prompt when unlocked
-    tier: str    # "TIER 1", "TIER 2", "TIER 3" — used by evaluator
     layer: str   # "surface" or "tacit" — controls unlock threshold
     topic: str = ""  # subtopic code e.g. "iam/provisioning", empty if untagged
 
@@ -74,7 +73,7 @@ _CHARACTER_SECTIONS = [
     "maturity level",
     "team members",
     "personality and communication style",
-    "company overview",  # TIER 3 context — Danny knows this freely as manager
+    "company overview",  # always visible context — Danny knows this freely as manager
 ]
 
 # Which section headers to drop entirely (meta/training context).
@@ -94,27 +93,19 @@ def _slugify(text: str, max_words: int = 5) -> str:
     return "_".join(words[:max_words])
 
 
-def _tier_from_header(header: str) -> str:
-    """Extract tier from a section header like '## Company Overview [TIER 3 — ...]'."""
-    m = re.search(r"TIER\s+([123])", header)
-    return f"TIER {m.group(1)}" if m else "TIER 3"
-
-
-def _parse_bullets(section_body: str, default_tier: str) -> list[tuple[str, str, str]]:
+def _parse_bullets(section_body: str) -> list[tuple[str, str]]:
     """
-    Return (content, tier, topic) triples for each bullet in a section body.
-    Strips inline [TIER N] and [topic: X] markers from content.
+    Return (content, topic) pairs for each bullet in a section body.
+    Strips inline [topic: X] and any legacy [TIER N] markers from content.
     """
     results = []
     for match in re.finditer(r"^\s*-\s+(.+)$", section_body, re.MULTILINE):
         raw = match.group(1).strip()
-        tier_match = re.search(r"\[(TIER\s+[123])[^\]]*\]", raw)
-        tier = tier_match.group(1).strip() if tier_match else default_tier
         topic_match = re.search(r"\[topic:\s*([^\]]+)\]", raw)
         topic = topic_match.group(1).strip() if topic_match else ""
         content = re.sub(r"\s*\[[^\]]*\]", "", raw).strip().strip('"')
         if content:
-            results.append((content, tier, topic))
+            results.append((content, topic))
     return results
 
 
@@ -179,24 +170,20 @@ def load_scenario(path: str | Path) -> Scenario:
             continue
 
         if is_tacit:
-            default_tier = _tier_from_header(header)
-            for content, tier, topic in _parse_bullets(body, default_tier):
+            for content, topic in _parse_bullets(body):
                 tacit_items.append(ScenarioItem(
                     id=make_id(content),
                     content=content,
-                    tier=tier,
                     layer="tacit",
                     topic=topic,
                 ))
             continue
 
         # Surface section — parse bullets.
-        default_tier = _tier_from_header(header)
-        for content, tier, topic in _parse_bullets(body, default_tier):
+        for content, topic in _parse_bullets(body):
             surface_items.append(ScenarioItem(
                 id=make_id(content),
                 content=content,
-                tier=tier,
                 layer="surface",
                 topic=topic,
             ))

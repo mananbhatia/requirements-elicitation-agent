@@ -32,7 +32,6 @@ def _serialize_revealed_items(revealed_items: list) -> list[dict]:
             result.append({
                 "id": item.id,
                 "content": item.content,
-                "tier": item.tier,
                 "layer": item.layer,
                 "topic": getattr(item, "topic", ""),
             })
