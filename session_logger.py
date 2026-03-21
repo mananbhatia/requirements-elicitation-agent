@@ -42,28 +42,40 @@ def _serialize_revealed_items(revealed_items: list) -> list[dict]:
 
 def _compute_summary_stats(annotations: list) -> dict:
     total = len(annotations)
-    with_mistakes = sum(1 for a in annotations if not a.get("is_well_formed", True))
-    well_formed = total - with_mistakes
-    elicited = sum(1 for a in annotations if a.get("information_elicited", True))
-    not_elicited = total - elicited
-    well_formed_no_info = sum(
-        1 for a in annotations
-        if a.get("is_well_formed", True) and not a.get("information_elicited", True)
+
+    # Turn type counts.
+    by_type: dict[str, int] = {}
+    for a in annotations:
+        tt = a.get("turn_type", "question")
+        by_type[tt] = by_type.get(tt, 0) + 1
+
+    # Question-only stats (is_well_formed/information_elicited can be None for other types).
+    questions = [a for a in annotations if a.get("turn_type", "question") == "question"]
+    q_total = len(questions)
+    q_with_mistakes = sum(1 for a in questions if a.get("is_well_formed") is False)
+    q_well_formed = q_total - q_with_mistakes
+    q_elicited = sum(1 for a in questions if a.get("information_elicited") is True)
+    q_not_elicited = q_total - q_elicited
+    q_well_formed_no_info = sum(
+        1 for a in questions
+        if a.get("is_well_formed") is True and a.get("information_elicited") is False
     )
 
     mistake_counts: dict[str, int] = {}
-    for ann in annotations:
+    for ann in questions:
         for m in ann.get("mistakes", []):
             mt = m.get("mistake_type", "unknown")
             mistake_counts[mt] = mistake_counts.get(mt, 0) + 1
 
     return {
         "total_turns": total,
-        "well_formed": well_formed,
-        "with_mistakes": with_mistakes,
-        "information_elicited": elicited,
-        "no_information_elicited": not_elicited,
-        "well_formed_no_info": well_formed_no_info,
+        "turns_by_type": by_type,
+        "questions_total": q_total,
+        "questions_well_formed": q_well_formed,
+        "questions_with_mistakes": q_with_mistakes,
+        "questions_information_elicited": q_elicited,
+        "questions_no_information_elicited": q_not_elicited,
+        "questions_well_formed_no_info": q_well_formed_no_info,
         "mistake_type_frequencies": dict(
             sorted(mistake_counts.items(), key=lambda x: -x[1])
         ),

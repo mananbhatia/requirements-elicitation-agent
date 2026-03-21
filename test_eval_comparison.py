@@ -3,6 +3,7 @@ Comparison test: Databricks GPT-OSS-120B vs Claude Sonnet 4.6 on evaluate_turn.
 
 Runs the same consultant turns through both models and prints results side by side.
 Each test case targets one or more of the 14 mistake types, plus clean baselines.
+Also tests classify_turn() on statement and proposal cases.
 
 Usage:
     python test_eval_comparison.py
@@ -19,7 +20,11 @@ from langchain_anthropic import ChatAnthropic
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage
 
-from evaluator_core import MISTAKE_TYPES, EVAL_PROMPT, _extract_content, _get_databricks_token, _get_databricks_base_url
+from evaluator_core import (
+    MISTAKE_TYPES, EVAL_PROMPT, _extract_content,
+    _get_databricks_token, _get_databricks_base_url,
+    classify_turn,
+)
 
 # ---------------------------------------------------------------------------
 # Models
@@ -235,6 +240,78 @@ CASES = [
     },
 ]
 
+# ---------------------------------------------------------------------------
+# Classification test cases (for classify_turn)
+# These are NOT run through evaluate_turn — they test the classifier directly.
+# ---------------------------------------------------------------------------
+
+CLASSIFY_CASES = [
+    {
+        "label": "UNPRODUCTIVE STATEMENT — value judgement with no inquiry",
+        "transcript": (
+            "Consultant: Are all your workspaces on the public internet?\n"
+            "Client: Yes, everything is on the public internet right now. We haven't set up "
+            "any private network connections.\n"
+            "Consultant: it means you are screwed"
+        ),
+        "message": "it means you are screwed",
+        "turn_index": 2,
+        "expect_type": "unproductive_statement",
+    },
+    {
+        "label": "UNPRODUCTIVE STATEMENT — unprofessional reaction",
+        "transcript": (
+            "Consultant: Does anyone have restrictions on spinning up compute?\n"
+            "Client: No, anyone can create clusters or spin up compute. We know it's not right.\n"
+            "Consultant: pretty bad. anyone can hack you"
+        ),
+        "message": "pretty bad. anyone can hack you",
+        "turn_index": 2,
+        "expect_type": "unproductive_statement",
+    },
+    {
+        "label": "SOLUTION PROPOSAL — concrete suggestion in response to a problem",
+        "transcript": (
+            "Consultant: How do users get added to the platform today?\n"
+            "Client: Everything is manual — someone on the team has to go in and add each person.\n"
+            "Consultant: We could set up SCIM provisioning to sync users automatically from your "
+            "identity provider — that would remove the manual work entirely."
+        ),
+        "message": (
+            "We could set up SCIM provisioning to sync users automatically from your "
+            "identity provider — that would remove the manual work entirely."
+        ),
+        "turn_index": 2,
+        "expect_type": "solution_proposal",
+    },
+    {
+        "label": "QUESTION — preamble then genuine inquiry",
+        "transcript": (
+            "Client: We have about 500 users coming from our old reporting system.\n"
+            "Consultant: That makes sense. How are those users currently being provisioned "
+            "onto Databricks?"
+        ),
+        "message": "That makes sense. How are those users currently being provisioned onto Databricks?",
+        "turn_index": 1,
+        "expect_type": "question",
+    },
+    {
+        "label": "EXPLANATION — responding to client clarification request",
+        "transcript": (
+            "Consultant: Are you using SCIM provisioning?\n"
+            "Client: Sorry, what is SCIM?\n"
+            "Consultant: It stands for System for Cross-domain Identity Management — it lets your "
+            "identity provider automatically sync users into Databricks instead of adding them manually."
+        ),
+        "message": (
+            "It stands for System for Cross-domain Identity Management — it lets your "
+            "identity provider automatically sync users into Databricks instead of adding them manually."
+        ),
+        "turn_index": 2,
+        "expect_type": "explanation",
+    },
+]
+
 
 # ---------------------------------------------------------------------------
 # Runner
@@ -305,6 +382,36 @@ if __name__ == "__main__":
         print(f"  Sonnet:    {fmt_result(sonnet_result)}  {'✓' if sonnet_match else '✗'}")
 
     print(f"\n{'='*80}")
-    print(f"SCORE SUMMARY")
+    print(f"SCORE SUMMARY — evaluate_turn")
     print(f"  GPT-OSS-120B:      {db_correct}/{total} correct")
     print(f"  Claude Sonnet 4.6: {sonnet_correct}/{total} correct")
+
+    # ---------------------------------------------------------------------------
+    # Classification tests
+    # ---------------------------------------------------------------------------
+    print(f"\n{'='*80}")
+    print(f"CLASSIFICATION TESTS — classify_turn (Claude Haiku)")
+    print(f"{'='*80}")
+
+    classify_correct = 0
+    classify_total = len(CLASSIFY_CASES)
+
+    for i, case in enumerate(CLASSIFY_CASES, 1):
+        print(f"\n[{i}/{classify_total}] {case['label']}")
+        print(f"  Message: {case['message'][:100]}{'...' if len(case['message']) > 100 else ''}")
+        print(f"  Expected type: {case['expect_type']}")
+
+        result = classify_turn(case["message"], case["transcript"], case["turn_index"])
+        if result:
+            got_type = result.get("turn_type", "?")
+            reasoning = result.get("reasoning", "")
+            match = got_type == case["expect_type"]
+            if match:
+                classify_correct += 1
+            print(f"  Got type:      {got_type}  {'✓' if match else '✗'}")
+            print(f"  Reasoning:     {reasoning}")
+        else:
+            print(f"  ERROR: classification failed")
+
+    print(f"\n{'='*80}")
+    print(f"CLASSIFICATION SCORE: {classify_correct}/{classify_total} correct")

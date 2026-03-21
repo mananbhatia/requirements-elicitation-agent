@@ -45,10 +45,12 @@ senior colleague, not a formal report.
 Write a feedback report with exactly five sections: SUMMARY, COVERAGE, CONTINUE, STOP, START.
 
 **SUMMARY**
-Two or three sentences. Use the exact numbers from the Statistics section above to state \
-how many questions the consultant asked, how many had mistakes (is_well_formed: false), \
-and how many failed to elicit information. Include the topic coverage numbers: how many \
-topics and subtopics were covered out of the total. Add a brief overall impression.
+Two or three sentences. Use the exact numbers from the Statistics section above. Report \
+the turn type breakdown naturally: how many questions were asked, how many solution \
+proposals were made, and how many turns were unproductive statements. Then report question \
+quality: how many questions had mistakes and how many failed to elicit information. Include \
+the topic coverage numbers: how many topics and subtopics were covered out of the total. \
+Add a brief overall impression.
 
 **COVERAGE**
 Report what was and was not explored, using the Topic coverage data above. Group by \
@@ -58,36 +60,41 @@ specific missed subtopics by name. Keep this section factual — no recommendati
 those belong in START. If all subtopics were covered, say so in one sentence.
 
 **CONTINUE**
-Focus on turns where both is_well_formed and information_elicited are true — these are the \
-turns that worked on both dimensions. Do not just list every such turn — look for PATTERNS. \
-What did those questions have in common? Were they specific, single-topic, adapted to the \
-client's level? Name the pattern, then illustrate it with one or two concrete examples, \
-quoting the actual question and referencing the turn number.
+Focus on effective turns — questions where both is_well_formed and information_elicited are \
+true, AND solution proposals where information_elicited is true. These are the turns that \
+worked. Do not list every one — look for PATTERNS. What did the effective questions have \
+in common? If there were effective solution proposals, note what made them land (they \
+prompted the client to react, clarify, or reveal something new). Name the patterns and \
+illustrate each with one or two concrete examples, quoting the actual turn and referencing \
+the turn number.
 
 **STOP**
-Two separate analyses:
+Three separate analyses:
 
-First, mistake patterns (is_well_formed: false). Group by mistake type across all turns. \
-For each mistake type that appeared more than once: name it, describe the pattern, give one \
-concrete example by quoting the original question (with its turn number), and use the \
-improvement verdict from the alternatives section as evidence — quote it directly. Prefer \
-turns where alt_information_elicited is true as your primary example, since these prove the \
-fix worked. If the alternative also failed (alt_information_elicited: false), note that \
-even a better-formed question did not help, and use the verdict to explain why. For mistake \
-types that appeared only once, mention them briefly without a full example. If no mistakes \
+First, mistake patterns in questions (is_well_formed: false, turn_type: question). Group \
+by mistake type. For each mistake type that appeared more than once: name it, describe the \
+pattern, give one concrete example by quoting the original question (with its turn number), \
+and use the improvement verdict from the alternatives section as evidence — quote it \
+directly. Prefer turns where alt_information_elicited is true as your primary example, \
+since these prove the fix worked. If the alternative also failed, note that even a \
+better-formed question did not help, and use the verdict to explain why. For mistake types \
+that appeared only once, mention them briefly without a full example. If no mistakes \
 recurred, say so clearly.
 
 Second, well-formed questions that did not elicit information (is_well_formed: true, \
-information_elicited: false). For each such turn that has a simulated alternative, use the \
-improvement verdict to characterise what happened — did the alternative unlock something, \
-or did both fail? Only report a pattern if multiple turns share the same root cause. A \
-single incident does not warrant a general recommendation.
+information_elicited: false, turn_type: question). For each such turn that has a simulated \
+alternative, use the improvement verdict to characterise what happened. Only report a \
+pattern if multiple turns share the same root cause. A single incident does not warrant a \
+general recommendation.
+
+Third, unproductive statements (turn_type: unproductive_statement). Quote each one and \
+describe it as a missed opportunity. Use the simulated alternative from the alternatives \
+section to show what could have been asked instead. If there were none, omit this section.
 
 **START**
-2–4 actionable recommendations derived from the actual failures above. Draw from both \
-failure types: mistake patterns (where phrasing needs to change) and well-formed questions \
-that got no information (where the consultant may need to read client knowledge level cues \
-better and pivot earlier). Where missed topics are linked to question quality failures, \
+2–4 actionable recommendations derived from the actual failures above. Draw from all \
+failure types: question mistake patterns, well-formed questions that got no information, \
+and unproductive statements. Where missed topics are linked to question quality failures, \
 connect them. Where a simulated alternative proved the fix worked \
 (alt_information_elicited: true), use it as a concrete illustration of the recommendation. \
 Be concrete — tell them exactly what to do differently.
@@ -261,44 +268,74 @@ def _format_coverage_text(coverage: dict, topic_taxonomy: dict) -> str:
 
 
 def _compute_stats(annotations: list) -> str:
+    # Split by turn type.
+    questions = [a for a in annotations if a.get("turn_type", "question") == "question"]
+    proposals = [a for a in annotations if a.get("turn_type") == "solution_proposal"]
+    unproductive = [a for a in annotations if a.get("turn_type") == "unproductive_statement"]
+    skipped = [a for a in annotations if a.get("turn_type") in ("explanation", "acknowledgment")]
+
     total = len(annotations)
-    with_mistakes = sum(1 for a in annotations if not a.get("is_well_formed", True))
-    no_mistakes = total - with_mistakes
-    elicited = sum(1 for a in annotations if a.get("information_elicited", True))
-    not_elicited = total - elicited
-    well_formed_no_info = sum(
-        1 for a in annotations
-        if a.get("is_well_formed", True) and not a.get("information_elicited", True)
+
+    # Question-only quality stats.
+    q_total = len(questions)
+    q_with_mistakes = sum(1 for a in questions if a.get("is_well_formed") is False)
+    q_no_mistakes = q_total - q_with_mistakes
+    q_elicited = sum(1 for a in questions if a.get("information_elicited") is True)
+    q_not_elicited = q_total - q_elicited
+    q_well_formed_no_info = sum(
+        1 for a in questions
+        if a.get("is_well_formed") is True and a.get("information_elicited") is False
     )
+    gold_examples = q_not_elicited  # questions that failed — primary alternatives targets
 
     mistake_counts: dict[str, int] = {}
-    for ann in annotations:
+    for ann in questions:
         for m in ann.get("mistakes", []):
             mt = m.get("mistake_type", "unknown")
             mistake_counts[mt] = mistake_counts.get(mt, 0) + 1
 
-    gold_examples = sum(
-        1 for a in annotations
-        if not a.get("information_elicited", True)
-    )  # turns where original failed — alternatives for these are the most instructive
+    # Solution proposal stats.
+    sp_elicited = sum(1 for a in proposals if a.get("information_elicited") is True)
+    sp_not_elicited = len(proposals) - sp_elicited
 
     lines = [
-        f"Total consultant turns evaluated: {total}",
-        f"Turns with no mistakes (is_well_formed: true): {no_mistakes}",
-        f"Turns with mistakes (is_well_formed: false): {with_mistakes}",
-        f"Turns that elicited information (information_elicited: true): {elicited}",
-        f"Turns that did not elicit information (information_elicited: false): {not_elicited}",
-        f"Turns well-formed but no information elicited: {well_formed_no_info}",
-        f"Turns where original failed to elicit information (candidate gold examples): {gold_examples}",
+        f"Total consultant turns: {total}",
+        f"  Questions: {q_total}",
+        f"  Solution proposals: {len(proposals)}",
+        f"  Unproductive statements: {len(unproductive)}",
+        f"  Explanations / acknowledgments (skipped): {len(skipped)}",
+        "",
+        "Question quality (questions only):",
+        f"  Well-formed (no mistakes): {q_no_mistakes}",
+        f"  With mistakes: {q_with_mistakes}",
+        f"  Elicited information: {q_elicited}",
+        f"  Did not elicit information: {q_not_elicited}",
+        f"  Well-formed but no information elicited: {q_well_formed_no_info}",
+        f"  Candidate gold examples (questions that failed to elicit): {gold_examples}",
     ]
     if mistake_counts:
         freq = ", ".join(
             f"{mt}: {count}"
             for mt, count in sorted(mistake_counts.items(), key=lambda x: -x[1])
         )
-        lines.append(f"Mistake type frequencies: {freq}")
+        lines.append(f"  Mistake type frequencies: {freq}")
     else:
-        lines.append("Mistake type frequencies: (none)")
+        lines.append("  Mistake type frequencies: (none)")
+
+    if proposals:
+        lines += [
+            "",
+            "Solution proposals:",
+            f"  Proposals that elicited information: {sp_elicited}",
+            f"  Proposals that did not elicit information: {sp_not_elicited}",
+        ]
+
+    if unproductive:
+        lines += [
+            "",
+            f"Unproductive statements: {len(unproductive)} (missed opportunities to ask or propose)",
+        ]
+
     return "\n".join(lines)
 
 

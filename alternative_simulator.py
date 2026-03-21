@@ -34,11 +34,11 @@ from evaluator_core import MISTAKE_TYPES, format_transcript, evaluate_turn
 _ALT_PROMPT = """\
 You are helping a consultant improve their requirements interview technique.
 
-## Conversation so far (before the problematic question)
+## Conversation so far (before the problematic turn)
 
 {prior_transcript}
 
-## The consultant's original question
+## The consultant's original turn
 
 "{original_question}"
 
@@ -52,24 +52,17 @@ You are helping a consultant improve their requirements interview technique.
 
 ## Your task
 
-Write one improved version of this question that avoids the identified mistake(s).
+Write one improved QUESTION that the consultant could have asked instead.
+The alternative must always be a question — regardless of what the original turn was.
 The improved question must be grounded only in what has been discussed so far in the
 conversation above — do not introduce information that wasn't already on the table.
 
-The alternative question MUST address the same specific topic as the original question. \
-Identify what the consultant was trying to learn — the underlying information need — and \
-generate a better way to ask for that same information. Do not redirect to a different topic, \
-do not ask about something the consultant wasn't asking about, and do not use the turn as an \
-opportunity to ask a "better" question about something else entirely. If the original asked \
-about data location, the alternative asks about data location. If the original asked about \
-clusters, the alternative asks about clusters.
+The alternative question MUST address the same specific topic or information need as the
+original turn. Identify what the consultant was trying to learn or accomplish, and generate
+a question that achieves that goal. Do not redirect to a different topic.
 
-The alternative question you generate must itself be free of the 14 mistake types listed \
-above. In particular, it must not commit the same mistake type it is correcting. For example, \
-if the original question was flagged for bundling multiple requirements into one question, the \
-alternative must ask only one thing. If the original was flagged for being vague, the \
-alternative must be specific. Review your generated question against the 14 mistake types \
-before returning it.
+The alternative question you generate must itself be free of the 14 mistake types listed
+above. Review your generated question against the 14 mistake types before returning it.
 
 Return only the question text. No explanation, no preamble, no quotation marks.
 """
@@ -154,10 +147,21 @@ def build_alternative_simulator(conversation_graph):
         results = []
 
         for ann in annotations:
-            needs_alternative = (
-                not ann.get("is_well_formed", True)
-                or not ann.get("information_elicited", True)
-            )
+            turn_type = ann.get("turn_type", "question")
+
+            if turn_type == "question":
+                needs_alternative = (
+                    not ann.get("is_well_formed", True)
+                    or not ann.get("information_elicited", True)
+                )
+            elif turn_type == "solution_proposal":
+                needs_alternative = not ann.get("information_elicited", True)
+            elif turn_type == "unproductive_statement":
+                needs_alternative = True
+            else:
+                # explanation, acknowledgment — no alternative needed
+                needs_alternative = False
+
             if not needs_alternative:
                 continue
 
@@ -165,7 +169,7 @@ def build_alternative_simulator(conversation_graph):
             original_question = ann.get("question", "")
             mistakes = ann.get("mistakes", [])
 
-            print(f"[SIM] Turn {turn_index}: {original_question!r}")
+            print(f"[SIM] Turn {turn_index} ({turn_type}): {original_question!r}")
 
             # Locate where this turn sits in the full message list.
             msg_idx = _find_message_index(messages, turn_index)
@@ -188,9 +192,16 @@ def build_alternative_simulator(conversation_graph):
             prior_messages = messages[:msg_idx]
             prior_transcript = _format_prior_transcript(prior_messages)
 
-            mistake_summary = "\n".join(
-                f"- [{m['mistake_type']}] {m['explanation']}" for m in mistakes
-            ) or "No specific mistake type — question was generally ineffective."
+            if mistakes:
+                mistake_summary = "\n".join(
+                    f"- [{m['mistake_type']}] {m['explanation']}" for m in mistakes
+                )
+            elif turn_type == "solution_proposal":
+                mistake_summary = "The consultant proposed a solution but it did not surface new information from the client. Show what question they could have asked instead to learn more."
+            elif turn_type == "unproductive_statement":
+                mistake_summary = "The consultant made a statement that did not advance discovery instead of asking a question. Show what question they could have asked instead."
+            else:
+                mistake_summary = "The question was generally ineffective."
 
             alt_prompt = _ALT_PROMPT.format(
                 prior_transcript=prior_transcript,

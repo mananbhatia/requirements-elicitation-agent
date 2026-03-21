@@ -179,7 +179,7 @@ def _render_conversation():
 def _run_evaluation():
     from alternative_simulator import build_alternative_simulator
     from report_generator import report_generator
-    from evaluator_core import format_transcript, evaluate_turn
+    from evaluator_core import format_transcript, evaluate_turn_routed
 
     scenario = get_scenario(st.session_state.scenario_path)
     conv_graph = get_conversation_graph(st.session_state.scenario_path)
@@ -226,7 +226,7 @@ def _run_evaluation():
             continue
 
         turn_index += 1
-        annotation = evaluate_turn(content, transcript_text, turn_index)
+        annotation = evaluate_turn_routed(content, transcript_text, turn_index)
         if annotation is not None:
             annotation["question"] = content
             annotations.append(annotation)
@@ -282,7 +282,14 @@ def _get_client_response(turn_index: int) -> str:
     return ""
 
 
-def _turn_icon(well_formed: bool, info_elicited: bool) -> str:
+def _turn_icon(turn_type: str, well_formed, info_elicited) -> str:
+    if turn_type in ("explanation", "acknowledgment"):
+        return "➖"
+    if turn_type == "solution_proposal":
+        return "✅" if info_elicited else "⚠️"
+    if turn_type == "unproductive_statement":
+        return "🔴"
+    # question
     if well_formed and info_elicited:
         return "✅"
     if well_formed and not info_elicited:
@@ -356,20 +363,38 @@ def _render_evaluation():
                 idx = ann.get("turn_index", "?")
                 question = ann.get("question", "")
                 mistakes = ann.get("mistakes", [])
-                well_formed = ann.get("is_well_formed", True)
-                info_elicited = ann.get("information_elicited", True)
-                icon = _turn_icon(well_formed, info_elicited)
+                well_formed = ann.get("is_well_formed")
+                info_elicited = ann.get("information_elicited")
+                turn_type = ann.get("turn_type", "question")
+                icon = _turn_icon(turn_type, well_formed, info_elicited)
+
+                # Skip explanation/acknowledgment turns — they add noise to the display.
+                if turn_type in ("explanation", "acknowledgment"):
+                    continue
+
+                type_label = {
+                    "question": "Question",
+                    "solution_proposal": "Solution proposal",
+                    "unproductive_statement": "⚠ Unproductive statement",
+                }.get(turn_type, turn_type)
+
                 alt = alternatives.get(idx)
 
-                with st.expander(f"{icon} Turn {idx}: {question[:80]}{'...' if len(question) > 80 else ''}"):
-                    # Assessment badges
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        status = "✅ Yes" if well_formed else "🔴 No"
-                        st.markdown(f"**Well-formed:** {status}")
-                    with col2:
+                with st.expander(f"{icon} Turn {idx} [{type_label}]: {question[:70]}{'...' if len(question) > 70 else ''}"):
+                    # Assessment badges — only show applicable fields
+                    if turn_type == "question":
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            status = "✅ Yes" if well_formed else "🔴 No"
+                            st.markdown(f"**Well-formed:** {status}")
+                        with col2:
+                            status = "✅ Yes" if info_elicited else "⚠️ No"
+                            st.markdown(f"**Information elicited:** {status}")
+                    elif turn_type == "solution_proposal":
                         status = "✅ Yes" if info_elicited else "⚠️ No"
                         st.markdown(f"**Information elicited:** {status}")
+                    elif turn_type == "unproductive_statement":
+                        st.markdown("**Well-formed:** 🔴 No — statement made instead of asking a question")
 
                     if mistakes:
                         st.markdown("**Mistakes:**")
