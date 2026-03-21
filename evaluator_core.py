@@ -5,9 +5,9 @@ Used by turn_evaluator.py (per-turn evaluation) and alternative_simulator.py
 (Stage C evaluation of alternative questions).
 
 Turn flow:
-  classify_turn()          — Haiku; determines turn type before mistake evaluation
-  evaluate_turn()          — GPT-OSS; classifies a question against 14 mistake types
-  check_information_elicited() — Haiku; used for non-question turns
+  classify_turn()          — GPT-OSS medium; determines turn type before mistake evaluation
+  evaluate_turn()          — GPT-OSS high; classifies a question against 14 mistake types
+  check_information_elicited() — GPT-OSS medium; used for non-question turns
   evaluate_turn_routed()   — orchestrates classification + routing; call this from
                               turn_evaluator.py and streamlit_app.py
 """
@@ -18,7 +18,6 @@ import json
 import warnings
 from pathlib import Path
 from langchain_openai import ChatOpenAI
-from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import HumanMessage, AIMessage
 
 def _get_databricks_token() -> str:
@@ -213,17 +212,25 @@ def format_transcript(messages: list) -> str:
 def classify_turn(message: str, transcript_text: str, turn_index: int) -> dict | None:
     """
     Classify a consultant turn into one of five types before mistake evaluation.
-    Uses Claude Haiku — fast and cheap for this simple classification task.
+    Uses GPT-OSS-120B medium reasoning.
     Returns {"turn_type": str, "reasoning": str} or None on failure.
     """
-    llm = ChatAnthropic(model="claude-haiku-4-5-20251001", temperature=0.0)
+    llm = ChatOpenAI(
+        model="databricks-gpt-oss-120b",
+        base_url=_get_databricks_base_url(),
+        api_key=_get_databricks_token(),
+        temperature=0.0,
+        extra_body={"reasoning_effort": "medium"},
+    )
     prompt = _CLASSIFY_PROMPT.format(
         transcript=transcript_text,
         turn_index=turn_index,
         message=message,
     )
     try:
-        response = llm.invoke([HumanMessage(content=prompt)])
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=UserWarning, module="pydantic")
+            response = llm.invoke([HumanMessage(content=prompt)])
         return _parse_json_response(_extract_content(response))
     except Exception as e:
         print(f"[CLASSIFY] Failed to classify turn {turn_index}: {e}")
@@ -234,15 +241,23 @@ def check_information_elicited(transcript_text: str, turn_index: int) -> bool:
     """
     Check whether the client's response to a given turn contained substantive information.
     Used for non-question turns (solution_proposal) where evaluate_turn is not called.
-    Uses Claude Haiku.
+    Uses GPT-OSS-120B medium reasoning.
     """
-    llm = ChatAnthropic(model="claude-haiku-4-5-20251001", temperature=0.0)
+    llm = ChatOpenAI(
+        model="databricks-gpt-oss-120b",
+        base_url=_get_databricks_base_url(),
+        api_key=_get_databricks_token(),
+        temperature=0.0,
+        extra_body={"reasoning_effort": "medium"},
+    )
     prompt = _INFO_ELICITED_PROMPT.format(
         transcript=transcript_text,
         turn_index=turn_index,
     )
     try:
-        response = llm.invoke([HumanMessage(content=prompt)])
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=UserWarning, module="pydantic")
+            response = llm.invoke([HumanMessage(content=prompt)])
         parsed = _parse_json_response(_extract_content(response))
         return bool(parsed.get("information_elicited", False))
     except Exception as e:

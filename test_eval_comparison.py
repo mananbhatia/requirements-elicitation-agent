@@ -390,7 +390,7 @@ if __name__ == "__main__":
     # Classification tests
     # ---------------------------------------------------------------------------
     print(f"\n{'='*80}")
-    print(f"CLASSIFICATION TESTS — classify_turn (Claude Haiku)")
+    print(f"CLASSIFICATION TESTS — classify_turn (GPT-OSS-120B medium)")
     print(f"{'='*80}")
 
     classify_correct = 0

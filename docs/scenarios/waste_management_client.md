@@ -75,23 +75,19 @@ access control dimensions.
 - Integration between systems handled via MuleSoft (dedicated integration team exists)
 - Data strategy being developed — expected pillars: strong foundation, more centralisation
   with governance, digital mindset, security that's tight but workable
-
-## Current Data Platform
-- Azure-based platform with Databricks
-- 3 workspaces: development, acceptance, production [topic: workspace/topology]
-- Dev workspace is on a separate Azure subscription from acceptance and production [topic: workspace/topology]
+- Azure-based data platform built on Databricks
 - Small data platform team: ~5.5 FTE (mix of internal and external contractors)
 - Currently migrating from legacy Oracle data warehouse (OBIEE) to Databricks
-- Using Azure Data Factory (ADF) for data ingestion via public endpoint
 - Using DBT with SQL Warehouses for ETL
-- PowerBI for visualization/dashboards
-- Delta Live Tables in use
+- PowerBI for dashboards and visualisation
+- Delta Live Tables in use for pipeline development
 - Serverless compute enabled
-- 1 Unity Catalog metastore in West Europe [topic: governance/catalog]
 
 ## What the Client Can Articulate
 Things Danny will share when asked relevant questions:
 
+- The platform has three workspaces: development, acceptance, and production [topic: workspace/topology]
+- There is one Unity Catalog metastore, hosted in West Europe [topic: governance/catalog]
 - It takes too long to give the business what they need — we need to slow down to speed up
 - There are about 500 users from the old OBIEE reporting system who have no knowledge of Databricks and will need some form of access [topic: iam/provisioning]
 - The platform is already in use but the team knows the setup is not right
@@ -127,7 +123,7 @@ Written in Danny's language — no technical jargon:
 - Environments are separated by folders in storage, not by proper isolation mechanisms [topic: workspace/isolation]
 - The data catalog storage is shared with other things — it is not dedicated [topic: governance/storage]
 - There are a lot of role assignments on our storage and they are not well managed [topic: governance/storage]
-- Data is ingested over the public internet — there is no private network connection for ingestion [topic: security/network]
+- Data comes into the platform through Azure Data Factory over the public internet — there is no private connection for ingestion [topic: security/network]
 - The development environment is on a completely separate Azure subscription from acceptance and production — the access setup is not consistent across them [topic: workspace/topology]
 - The platform infrastructure setup has not been touched since March 2023 — it was done by a previous vendor and nobody on the team owns it now [topic: governance/posture]
 - Credentials and secrets are stored inconsistently — some in one place, some in another [topic: security/credentials]

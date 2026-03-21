@@ -8,8 +8,7 @@ Parses any scenario markdown file into three layers:
 
   surface_items   — facts the client would share if asked about the relevant topic.
                     Gated: unlocked when the question is about that topic area.
-                    Parsed from: Company Overview, Current Data Platform,
-                    What the Client Can Articulate.
+                    Parsed from: What the Client Can Articulate.
 
   tacit_items     — facts the client knows but guards carefully.
                     Gated: unlocked only when asked specifically about the
@@ -28,8 +27,6 @@ Scenario markdown sections are classified as follows:
     - Personality and Communication Style
 
   SURFACE sections (parsed into surface_items):
-    - Company Overview
-    - Current Data Platform
     - What the Client Can Articulate
 
   TACIT section (parsed into tacit_items):
@@ -236,16 +233,27 @@ It is NOT genuine if:
 - It asks how a technology works in general, not about this client specifically
 
 ### Step 3: Relevance matching (only if steps 1 and 2 pass)
-For each unrevealed item below, ask: does this question directly address the specific
-topic this item describes? Assess each item independently.
+For each candidate item, ask: does this question SPECIFICALLY ask about what THIS item
+describes? Or is the item merely about the same general topic area as the question?
 
-Apply a stricter bar for TACIT items than SURFACE items — a tacit item is only earned
-if the question asks specifically about the current state or process for that topic,
-not just the topic area in general.
+**Direct match — return the item:** The question specifically targets what this item
+describes. The question could not be meaningfully answered without this item.
+Ask yourself: if this item did not exist, would the question go unanswered?
+If yes, it is a direct match.
 
-Calibration: most questions match 1–2 items. A well-targeted question covering multiple
-dimensions of the same topic might match 3–4. Matching 5 or more should be rare and only
-when the question genuinely covers each of those topics explicitly.
+**Topical association — do NOT return the item:** The item is about the same general
+area as the question, but the question doesn't specifically address this item's content.
+A question about a broad topic area is NOT a direct match for every item in that area.
+Only the item (if any) that most centrally answers the question qualifies.
+
+If the question is broad, return at most the one item that most centrally characterises
+that area — or none if even that is a stretch. Broad questions earn little.
+If the question is specific and directly targets something, return the items it targets.
+
+Apply a stricter bar for TACIT items — a tacit item is only earned if the question asks
+specifically about the current state or process for that topic, not just the topic area.
+
+Order matched_ids by decreasing relevance — most directly targeted item first.
 
 SURFACE items:
 {surface_items}
@@ -256,6 +264,7 @@ TACIT items:
 ### Output format
 Output ONLY a JSON object. No reasoning, no explanation, no other text.
 If "is_genuine" is false, "matched_ids" MUST be [].
+matched_ids must be ordered: most directly targeted item first.
 
 {{"is_genuine": true/false, "matched_ids": ["id", ...] or []}}
 """
@@ -326,7 +335,9 @@ def retrieve_relevant_knowledge(
     except (json.JSONDecodeError, AttributeError):
         matched_ids = []
 
-    # Return all items the LLM judged relevant — count is a product of the relevance
-    # judgment, not an externally imposed cap.
+    # Return items the LLM judged relevant. The prompt does the calibration work —
+    # direct specificity, not topical association. The [:3] cap is a safety guardrail
+    # for when the LLM misjudges despite good instructions. If the cap is consistently
+    # binding, it means the prompt needs tuning, not the cap.
     all_unrevealed = {t.id: t for t in unrevealed_surface + unrevealed_tacit}
-    return [all_unrevealed[id] for id in matched_ids if id in all_unrevealed]
+    return [all_unrevealed[id] for id in matched_ids if id in all_unrevealed][:3]

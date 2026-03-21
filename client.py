@@ -39,18 +39,16 @@ def _build_system_prompt(character_text: str, revealed_items: list[ScenarioItem]
         injected = "\n".join(f"- {item.content}" for item in revealed_items)
         prompt += f"""
 
-## WHAT YOU NOW KNOW
-
-The consultant asked specifically enough to surface the following.
-Express the meaning through your own experience and reaction — not by restating
-the fact. Do not repeat or closely paraphrase the wording below.
-Use what's relevant to the current question naturally. Don't force in details
-that don't connect to what's being discussed.
+## WHAT YOU KNOW ABOUT THE SITUATION
 
 {injected}
+
+Speak from this knowledge naturally when it's relevant to what's being discussed.
+Do not restate these points verbatim — put them in your own words and experience.
 """
-    prompt += "\n\n## REMEMBER\nBe concise. Most responses are 2-4 sentences. Say what matters and stop. No fabrication. If a question is unclear or uses a term you don't recognise, ask what they mean — do not say you don't know. No em-dashes (—)\n"
-    
+
+    prompt += "\n\nRespond in 2-4 sentences. No em-dashes (—).\n"
+
     return prompt
 
 
