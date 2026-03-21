@@ -5,11 +5,41 @@ Used by both turn_evaluator.py (per-turn evaluation of the real interview)
 and alternative_simulator.py (Stage C evaluation of alternative questions).
 """
 
+import os
 import re
 import json
+import warnings
 from pathlib import Path
-from langchain_anthropic import ChatAnthropic
+from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, AIMessage
+
+def _get_databricks_token() -> str:
+    token = os.environ.get("DATABRICKS_TOKEN")
+    if not token:
+        raise EnvironmentError("DATABRICKS_TOKEN is not set. Add it to your .env file.")
+    return token
+
+
+def _get_databricks_base_url() -> str:
+    url = os.environ.get("DATABRICKS_BASE_URL")
+    if not url:
+        raise EnvironmentError("DATABRICKS_BASE_URL is not set. Add it to your .env file.")
+    return url
+
+
+def _extract_content(response) -> str:
+    """Normalize LLM response to a plain string.
+
+    GPT-OSS-120B sometimes returns content as a list of blocks
+    ([{"type": "text", "text": "..."}]) instead of a plain string.
+    It also prepends chain-of-thought reasoning before the answer.
+    This helper handles both cases and returns the raw text.
+    """
+    content = response.content
+    if isinstance(content, list):
+        parts = [b["text"] for b in content if isinstance(b, dict) and b.get("type") == "text"]
+        return "\n".join(parts).strip()
+    return str(content).strip()
 
 MISTAKE_TYPES = (
     Path(__file__).parent / "docs" / "evaluation" / "mistake_types.md"
@@ -95,7 +125,13 @@ def evaluate_turn(question: str, transcript_text: str, turn_index: int) -> dict:
     Make one LLM evaluation call for a single consultant turn.
     Returns the parsed annotation dict, or None on failure.
     """
-    llm = ChatAnthropic(model="claude-sonnet-4-6", temperature=0.0)
+    llm = ChatOpenAI(
+        model="databricks-gpt-oss-120b",
+        base_url=_get_databricks_base_url(),
+        api_key=_get_databricks_token(),
+        temperature=0.0,
+        extra_body={"reasoning_effort": "high"},
+    )
     prompt = EVAL_PROMPT.format(
         mistake_types=MISTAKE_TYPES,
         transcript=transcript_text,
@@ -103,10 +139,14 @@ def evaluate_turn(question: str, transcript_text: str, turn_index: int) -> dict:
         question=question,
     )
     try:
-        response = llm.invoke([HumanMessage(content=prompt)])
-        raw = response.content.strip()
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=UserWarning, module="pydantic")
+            response = llm.invoke([HumanMessage(content=prompt)])
+        raw = _extract_content(response)
         if "```" in raw:
             raw = re.sub(r"```[a-z]*\n?", "", raw).replace("```", "").strip()
+        # The model may include chain-of-thought before the JSON — the regex
+        # finds the JSON object anywhere in the response.
         json_match = re.search(r"\{.*\}", raw, re.DOTALL)
         if json_match:
             raw = json_match.group(0)

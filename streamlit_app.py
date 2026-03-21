@@ -6,6 +6,7 @@ All graph logic lives in graph.py, eval_graph.py, knowledge.py, session_logger.p
 """
 
 from pathlib import Path
+from datetime import date
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -93,9 +94,36 @@ def _render_sidebar():
         st.markdown("## Revodata")
         st.markdown("**Consultant Interview Training**")
         st.divider()
-        st.markdown(f"**Client:** {scenario.title}")
-        st.markdown("**Meeting type:** Initial discovery — first meeting, no prior work done")
-        st.markdown("**Your role:** Lead the discovery. Ask questions.")
+
+        # Briefing
+        if scenario.briefing:
+            for line in scenario.briefing.splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                if ":" in line:
+                    label, _, value = line.partition(":")
+                    st.markdown(f"**{label.strip()}:** {value.strip()}")
+                else:
+                    st.markdown(line)
+        else:
+            st.markdown(f"**Client:** {scenario.title}")
+            st.markdown("**Meeting type:** Initial discovery — first meeting, no prior work done")
+            st.markdown("**Your role:** Lead the discovery. Ask questions.")
+
+        # Topic taxonomy
+        if scenario.topic_taxonomy:
+            st.divider()
+            st.markdown("**Topics to cover**")
+            taxonomy = scenario.topic_taxonomy
+            # Group subtopics under their parent
+            top_level = {k: v for k, v in taxonomy.items() if "/" not in k}
+            for code, display in top_level.items():
+                subtopics = [v for k, v in taxonomy.items() if k.startswith(code + "/")]
+                st.markdown(f"**{display}**")
+                if subtopics:
+                    st.caption(" · ".join(subtopics))
+
         st.divider()
 
         if st.session_state.phase == "conversation":
@@ -149,31 +177,82 @@ def _render_conversation():
 # ---------------------------------------------------------------------------
 
 def _run_evaluation():
+    from alternative_simulator import build_alternative_simulator
+    from report_generator import report_generator
+    from evaluator_core import format_transcript, evaluate_turn
+
     scenario = get_scenario(st.session_state.scenario_path)
-    eval_graph = get_eval_graph(st.session_state.scenario_path)
+    conv_graph = get_conversation_graph(st.session_state.scenario_path)
+    alternative_simulator = build_alternative_simulator(conv_graph)
 
     tier1_total = sum(
         1 for item in scenario.surface_items + scenario.tacit_items
         if item.tier == "TIER 1"
     )
 
-    with st.spinner("Evaluating your interview..."):
-        eval_state = eval_graph.invoke({
-            "transcript": st.session_state.lc_messages,
-            "revealed_items": st.session_state.revealed_items,
-            "scenario_items_total": tier1_total,
-            "turn_annotations": [],
-            "simulated_alternatives": [],
-            "report": "",
-        })
+    messages = st.session_state.lc_messages
 
-    st.session_state.eval_state = eval_state
+    # Count consultant turns (excluding hidden opening prompt) for progress tracking.
+    consultant_turns = [
+        m for m in messages
+        if (isinstance(m, HumanMessage) or (isinstance(m, dict) and m.get("type") == "human"))
+        and not (m.content if hasattr(m, "content") else m.get("content", "")).startswith("[Start of interview")
+    ]
+    n_turns = len(consultant_turns)
+
+    state = {
+        "transcript": messages,
+        "revealed_items": st.session_state.revealed_items,
+        "scenario_items_total": tier1_total,
+        "turn_annotations": [],
+        "simulated_alternatives": [],
+        "report": "",
+    }
+
+    # Step 1: evaluate each turn individually so progress bar advances per turn.
+    # Step 1 occupies 0–33% of the bar.
+    transcript_text = format_transcript(messages)
+    annotations = []
+    turn_index = 0
+
+    progress = st.progress(0, text="Step 1 of 3 — Evaluating turns (0%)")
+
+    for message in messages:
+        is_human = isinstance(message, HumanMessage) or (
+            isinstance(message, dict) and message.get("type") == "human"
+        )
+        if not is_human:
+            continue
+        content = message.content if hasattr(message, "content") else message.get("content", "")
+        if content.startswith("[Start of interview"):
+            continue
+
+        turn_index += 1
+        annotation = evaluate_turn(content, transcript_text, turn_index)
+        if annotation is not None:
+            annotation["question"] = content
+            annotations.append(annotation)
+
+        pct = int((turn_index / n_turns) * 33) if n_turns else 33
+        progress.progress(pct, text=f"Step 1 of 3 — Evaluating turns ({pct}%)")
+
+    state = {**state, "turn_annotations": annotations}
+
+    progress.progress(33, text="Step 2 of 3 — Generating alternatives (33%)")
+    state = {**state, **alternative_simulator(state)}
+
+    progress.progress(66, text="Step 3 of 3 — Writing feedback report (66%)")
+    state = {**state, **report_generator(state)}
+
+    progress.progress(100, text="Complete (100%)")
+
+    st.session_state.eval_state = state
 
     log_path = save_session(
         scenario.title,
         st.session_state.lc_messages,
         st.session_state.revealed_items,
-        eval_state,
+        state,
     )
     st.session_state.log_path = str(log_path)
     st.session_state.phase = "evaluation"
@@ -308,6 +387,12 @@ def _render_evaluation():
         if not report:
             st.write("No report generated.")
         else:
+            st.download_button(
+                label="Download report",
+                data=report,
+                file_name=f"interview_feedback_{date.today()}.md",
+                mime="text/markdown",
+            )
             # Render section headers as visual separators
             for line in report.split("\n"):
                 stripped = line.strip()
@@ -336,6 +421,8 @@ _render_sidebar()
 if st.session_state.phase == "conversation":
     _render_conversation()
 elif st.session_state.phase == "evaluating":
+    _render_conversation()
+    st.divider()
     _run_evaluation()
 elif st.session_state.phase == "evaluation":
     _render_evaluation()

@@ -41,9 +41,11 @@ Scenario markdown sections are classified as follows:
 
 import re
 import json
+import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
-from langchain_anthropic import ChatAnthropic
+import os
+from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage as LCHumanMessage
 
 
@@ -53,12 +55,15 @@ class ScenarioItem:
     content: str # the fact — injected into system prompt when unlocked
     tier: str    # "TIER 1", "TIER 2", "TIER 3" — used by evaluator
     layer: str   # "surface" or "tacit" — controls unlock threshold
+    topic: str = ""  # subtopic code e.g. "iam/provisioning", empty if untagged
 
 
 @dataclass
 class Scenario:
     title: str
     character_text: str                        # always in system prompt
+    briefing: str = ""                         # consultant-facing briefing text
+    topic_taxonomy: dict = field(default_factory=dict)  # code -> display name
     surface_items: list[ScenarioItem] = field(default_factory=list)
     tacit_items: list[ScenarioItem] = field(default_factory=list)
 
@@ -79,6 +84,10 @@ _DROPPED_SECTIONS = [
     "technical reference",
 ]
 
+# Consultant-facing sections — captured separately, not sent to client LLM.
+_BRIEFING_SECTIONS = ["consultant briefing"]
+_TAXONOMY_SECTIONS = ["topics"]
+
 
 def _slugify(text: str, max_words: int = 5) -> str:
     words = re.sub(r"[^a-z0-9\s]", "", text.lower()).split()
@@ -91,19 +100,21 @@ def _tier_from_header(header: str) -> str:
     return f"TIER {m.group(1)}" if m else "TIER 3"
 
 
-def _parse_bullets(section_body: str, default_tier: str) -> list[tuple[str, str]]:
+def _parse_bullets(section_body: str, default_tier: str) -> list[tuple[str, str, str]]:
     """
-    Return (content, tier) pairs for each bullet in a section body.
-    Strips inline [TIER N] markers from content.
+    Return (content, tier, topic) triples for each bullet in a section body.
+    Strips inline [TIER N] and [topic: X] markers from content.
     """
     results = []
     for match in re.finditer(r"^\s*-\s+(.+)$", section_body, re.MULTILINE):
         raw = match.group(1).strip()
         tier_match = re.search(r"\[(TIER\s+[123])[^\]]*\]", raw)
         tier = tier_match.group(1).strip() if tier_match else default_tier
+        topic_match = re.search(r"\[topic:\s*([^\]]+)\]", raw)
+        topic = topic_match.group(1).strip() if topic_match else ""
         content = re.sub(r"\s*\[[^\]]*\]", "", raw).strip().strip('"')
         if content:
-            results.append((content, tier))
+            results.append((content, tier, topic))
     return results
 
 
@@ -123,6 +134,8 @@ def load_scenario(path: str | Path) -> Scenario:
     sections = section_pattern.findall(text)
 
     character_parts: list[str] = []
+    briefing_parts: list[str] = []
+    topic_taxonomy: dict[str, str] = {}
     surface_items: list[ScenarioItem] = []
     tacit_items: list[ScenarioItem] = []
     seen_ids: dict[str, int] = {}
@@ -139,10 +152,26 @@ def load_scenario(path: str | Path) -> Scenario:
         # --- Classify section ---
         is_character = any(k in header_lower for k in _CHARACTER_SECTIONS)
         is_dropped = any(k in header_lower for k in _DROPPED_SECTIONS)
+        is_briefing = any(k in header_lower for k in _BRIEFING_SECTIONS)
+        is_taxonomy = any(k in header_lower for k in _TAXONOMY_SECTIONS)
         is_tacit = "tacit knowledge" in header_lower
         # Everything else is a surface section.
 
         if is_dropped:
+            continue
+
+        if is_briefing:
+            briefing_parts.append(body.strip())
+            continue
+
+        if is_taxonomy:
+            for line in body.splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                if ":" in line:
+                    code, _, display = line.partition(":")
+                    topic_taxonomy[code.strip()] = display.strip()
             continue
 
         if is_character:
@@ -151,29 +180,33 @@ def load_scenario(path: str | Path) -> Scenario:
 
         if is_tacit:
             default_tier = _tier_from_header(header)
-            for content, tier in _parse_bullets(body, default_tier):
+            for content, tier, topic in _parse_bullets(body, default_tier):
                 tacit_items.append(ScenarioItem(
                     id=make_id(content),
                     content=content,
                     tier=tier,
                     layer="tacit",
+                    topic=topic,
                 ))
             continue
 
         # Surface section — parse bullets.
         default_tier = _tier_from_header(header)
-        for content, tier in _parse_bullets(body, default_tier):
+        for content, tier, topic in _parse_bullets(body, default_tier):
             surface_items.append(ScenarioItem(
                 id=make_id(content),
                 content=content,
                 tier=tier,
                 layer="surface",
+                topic=topic,
             ))
 
     character_text = "\n\n".join(character_parts)
     return Scenario(
         title=title,
         character_text=character_text,
+        briefing="\n".join(briefing_parts),
+        topic_taxonomy=topic_taxonomy,
         surface_items=surface_items,
         tacit_items=tacit_items,
     )
@@ -265,17 +298,33 @@ def retrieve_relevant_knowledge(
         f'- id: "{t.id}", fact: "{t.content}"' for t in unrevealed_tacit
     ) or "(none remaining)"
 
-    llm = ChatAnthropic(model="claude-haiku-4-5-20251001", temperature=0.0)
+    token = os.environ.get("DATABRICKS_TOKEN")
+    base_url = os.environ.get("DATABRICKS_BASE_URL")
+    if not token or not base_url:
+        raise EnvironmentError("DATABRICKS_TOKEN and DATABRICKS_BASE_URL must be set in .env")
+    llm = ChatOpenAI(
+        model="databricks-gpt-oss-120b",
+        base_url=base_url,
+        api_key=token,
+        temperature=0.0,
+        extra_body={"reasoning_effort": "medium"},
+    )
     prompt = _RETRIEVAL_PROMPT.format(
         question=question,
         recent_context=recent_context or "(start of conversation)",
         surface_items=surface_text,
         tacit_items=tacit_text,
     )
-    response = llm.invoke([LCHumanMessage(content=prompt)])
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", category=UserWarning, module="pydantic")
+        response = llm.invoke([LCHumanMessage(content=prompt)])
 
     try:
-        raw = response.content.strip()
+        # Normalize list-of-blocks response format (reasoning block + text block).
+        content = response.content
+        if isinstance(content, list):
+            content = "\n".join(b["text"] for b in content if isinstance(b, dict) and b.get("type") == "text")
+        raw = content.strip()
         # Strip markdown code fences if present.
         if "```" in raw:
             raw = re.sub(r"```[a-z]*\n?", "", raw).replace("```", "").strip()

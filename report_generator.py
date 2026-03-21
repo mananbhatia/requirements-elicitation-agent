@@ -7,10 +7,13 @@ produces a structured feedback report in Continue/Stop/Start format.
 One LLM call. The full report is stored in the `report` field of EvaluationState.
 """
 
-from langchain_anthropic import ChatAnthropic
+import os
+import warnings
+from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, AIMessage, HumanMessage as LCHumanMessage
 
 from evaluation_state import EvaluationState
+from evaluator_core import _get_databricks_base_url, _get_databricks_token, _extract_content
 
 _REPORT_PROMPT = """\
 You are a senior consultant giving feedback to a junior colleague after reviewing their \
@@ -214,9 +217,17 @@ def report_generator(state: EvaluationState) -> dict:
         alternatives_text=alternatives_text,
     )
 
-    llm = ChatAnthropic(model="claude-sonnet-4-6", temperature=0.3)
-    response = llm.invoke([LCHumanMessage(content=prompt)])
-    report = response.content.strip()
+    llm = ChatOpenAI(
+        model="databricks-gpt-oss-120b",
+        base_url=_get_databricks_base_url(),
+        api_key=_get_databricks_token(),
+        temperature=0.3,
+        extra_body={"reasoning_effort": "high"},
+    )
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", category=UserWarning, module="pydantic")
+        response = llm.invoke([LCHumanMessage(content=prompt)])
+    report = _extract_content(response)
 
     print("[REPORT] Report generation complete.")
     return {"report": report}

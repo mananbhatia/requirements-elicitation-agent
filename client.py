@@ -44,11 +44,12 @@ def _build_system_prompt(character_text: str, revealed_items: list[ScenarioItem]
 The consultant asked specifically enough to surface the following.
 Express the meaning through your own experience and reaction — not by restating
 the fact. Do not repeat or closely paraphrase the wording below.
-Do not volunteer further related details that weren't asked about.
+Use what's relevant to the current question naturally. Don't force in details
+that don't connect to what's being discussed.
 
 {injected}
 """
-    prompt += "\n\n## REMEMBER\nBe concise. No fabrication. If a question is unclear or uses a term you don't recognise, ask what they mean — do not say you don't know. No em-dashes (—)\n"
+    prompt += "\n\n## REMEMBER\nBe concise. Most responses are 2-4 sentences. Say what matters and stop. No fabrication. If a question is unclear or uses a term you don't recognise, ask what they mean — do not say you don't know. No em-dashes (—)\n"
     
     return prompt
 
