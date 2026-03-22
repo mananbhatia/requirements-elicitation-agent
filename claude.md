@@ -19,8 +19,7 @@ The synthetic client cannot reveal what it cannot see. All scenario knowledge is
 - **character_text** — always in the system prompt. Defines identity, personality, team structure.
   Contains ZERO factual data about the platform or situation.
 - **surface_items** — facts the client would share if asked about the relevant topic.
-  Gated: unlocked by genuine specific questions. Parsed from Company Overview,
-  Current Data Platform, What the Client Can Articulate sections.
+  Gated: unlocked by genuine specific questions. Parsed from What the Client Can Articulate.
 - **tacit_items** — facts the client guards carefully. Written in plain client language,
   no technical jargon. Gated: unlocked only when asked specifically. Parsed from
   the "What the Client Knows But Won't Volunteer" section.
@@ -36,10 +35,14 @@ Retrieval uses a three-step approach:
 1. Structural check: does the input contain a verb or question word? Bare noun phrases fail immediately.
 2. Intent check: does it ask about this client's specific situation? Topic references ("SCIM?",
    "what about X?") are disqualified. Catch-alls are disqualified.
-3. Relevance matching: each unrevealed item is assessed independently. Tacit items require a
-   stricter bar (question must ask about current state/process, not just the topic area).
-   Calibration: most questions match 1–2 items; a well-targeted question might match 3–4;
-   matching 5+ is rare.
+3. Relevance matching: **direct specificity, not topical association**. For each candidate item,
+   the test is: "if this item did not exist, would the question go unanswered?" If yes, it's a
+   direct match. If the item is merely about the same topic area, it is not returned. Broad
+   questions earn 0–1 items; specific questions earn the items they directly target. Tacit items
+   require a stricter bar (question must ask about current state/process, not just the topic area).
+   `matched_ids` is ordered by decreasing relevance — most directly targeted item first.
+   A code-level `[:3]` cap in `retrieve_relevant_knowledge()` guards against prompt misjudgements;
+   if it binds regularly, the prompt needs tuning, not the cap.
 
 The last 2 conversation turns are passed as context so follow-up questions resolve correctly
 (e.g. "is it acceptance or production?" maps to PowerBI after discussing PowerBI).
@@ -117,7 +120,7 @@ Markdown files in `docs/scenarios/`. Sections classified by header:
   - `Team Members` — names and roles only; who to defer to
   - `Personality and Communication Style` — tone, register, quirks; how they speak, not what they know
   - `Company Overview` — public context the client knows freely as a manager (industry, org structure, strategic direction). Always visible. No platform facts.
-- **SURFACE** (gated): Current Data Platform, What the Client Can Articulate
+- **SURFACE** (gated): What the Client Can Articulate
 - **TACIT** (gated): What the Client Knows But Won't Volunteer [Tacit Knowledge]
 - **DROPPED** (never used): Scope Note, Technical Reference [EVALUATION ONLY]
 
@@ -130,18 +133,17 @@ the evaluator, never seen by the client LLM.
 
 ## Synthetic Client Behavior Rules (in docs/behavior_rules.md, loaded by client.py)
 Generic rules, scenario-agnostic, based on C-LEIA research principles:
-1. Answer only what was asked — stop there
-2. Never volunteer information
+1. Answer what was asked, then stop — don't elaborate into adjacent topics
+2. Don't repeat information already shared earlier in the conversation
 3. Only know what is in context — no fabrication, no approximate answers
-4. Never give recommendations or priorities — redirect to consultant
-5. Never break character
-6. No bullets, no formatting, no markdown — prose only
-7. Unclear framing → answer what you understand + flag the term; genuinely ambiguous (multiple valid
-   interpretations) → ask what they mean first. Relay secondhand knowledge from colleagues as your
-   own ("from what Thomas tells me...") rather than redirecting. Deferral is a last resort.
-8. When deferring, name the specific team member; let the consultant lead technical explanations
-9. Express facts through experience and reaction, not as statements
-10. Only ask questions when genuinely confused — not to hand control back
+4. Express facts through experience and reaction, not as clinical statements
+5. Don't raise topics the consultant hasn't asked about
+6. When the consultant proposes something, engage from lived experience; don't set priorities
+7. Unclear framing → answer what you understand + flag the term; genuinely ambiguous → ask
+   what they mean first. Relay secondhand knowledge as your own ("from what Thomas tells me...").
+   Deferral to colleagues is a last resort.
+8. Only ask questions when genuinely confused — not to hand control back
+9. Never break character or acknowledge being an AI
 
 ## Client Maturity Levels
 Three dimensions, each set independently in the `Maturity Level` section of the scenario file:
@@ -210,7 +212,7 @@ Note: `topic_coverage` is stored in `EvaluationState` but not currently persiste
 ## Tech Stack
 - Python, LangChain, LangGraph
 - Anthropic Claude Sonnet 4.6 for client LLM (temp 0.7) and alternative question generation (temp 0.3)
-- Databricks GPT-OSS-120B (OpenAI-compatible endpoint) for retrieval (reasoning_effort=medium), turn evaluation (reasoning_effort=high), and report generation (reasoning_effort=high)
+- Databricks GPT-OSS-120B (OpenAI-compatible endpoint) for retrieval (medium), turn classification (medium), information-elicited checks (medium), turn evaluation (high), and report generation (high)
 - python-dotenv for API key management (`DATABRICKS_TOKEN`, `DATABRICKS_BASE_URL`)
 - Streamlit for UI
 
@@ -262,16 +264,21 @@ agent_v2/
 ## Key Design Decisions
 - **No facts in character_text**: the only reliable way to prevent leakage is to not give
   the LLM the information at all. Rules cannot reliably suppress what the LLM can see.
-- **Retrieval is a gate, not a search**: the retrieval LLM's job is to disqualify, not to find.
-  Most turns should return nothing. The number of items returned is proportional to what the
-  question earned — a vague question earns nothing, a well-targeted question covering multiple
-  dimensions of a topic can earn several.
-- **GPT-OSS for retrieval and evaluation**: retrieval and evaluation use Databricks GPT-OSS-120B.
-  Testing showed GPT-OSS medium significantly outperforms Haiku on over-matching prevention
-  (e.g. "tell me about your setup" → Haiku: 24 items, GPT-OSS low: 29 items, GPT-OSS medium: 0).
-  Evaluation accuracy is roughly equivalent to Sonnet (6/13 vs 5/13 on 13-case test).
-  GPT-OSS also returns responses as `[reasoning_block, text_block]` lists rather than plain strings;
-  `_extract_content()` in `evaluator_core.py` normalises this.
+- **Retrieval matches on direct specificity, not topical association**: the gate asks "would the
+  question go unanswered without this item?" — not "is this item about the same topic?". A broad
+  question about a topic area earns 0–1 items. A specific question earns the items it directly
+  targets. A `[:3]` code-level cap guards against prompt misjudgement; if it binds regularly,
+  the prompt needs tuning. `matched_ids` is ordered by relevance so the cap takes the strongest matches.
+- **Background context belongs in character_text, not gated items**: tooling stack, team size,
+  migration status are things Danny knows freely as a manager — they don't warrant discovery.
+  Only facts that require a specific question to earn belong in surface/tacit. This prevents
+  early turns from dumping large amounts of platform context.
+- **GPT-OSS for all evaluation calls**: retrieval, turn classification, information-elicited
+  checks, turn evaluation, and report generation all use Databricks GPT-OSS-120B. Claude Sonnet
+  is used only for the synthetic client (persona fidelity) and alternative question generation
+  (creative rewriting). GPT-OSS returns responses as `[reasoning_block, text_block]` lists;
+  `_extract_content()` normalises this; all `.invoke()` calls are wrapped in
+  `warnings.catch_warnings()` to suppress the Pydantic serializer warning this triggers.
 - **Plain language in tacit items**: technical terms in scenario items caused the client to
   use jargon it couldn't explain, creating incoherence. Danny speaks Danny's language.
 - **Context passed to retrieval**: last 2 turns of conversation passed so follow-up questions

@@ -103,7 +103,7 @@ def save_session(
         "revealed_items": _serialize_revealed_items(revealed_items),
         "turn_annotations": annotations,
         "simulated_alternatives": eval_state.get("simulated_alternatives", []),
-        "report": eval_state.get("report", ""),
+        "report": eval_state.get("report", {}),
         "summary_stats": _compute_summary_stats(annotations),
     }
 

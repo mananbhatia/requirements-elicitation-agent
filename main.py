@@ -46,7 +46,8 @@ def _run_evaluation(messages, revealed_items, scenario, graph, scenario_title):
         "turn_annotations": [],
         "simulated_alternatives": [],
         "topic_coverage": {},
-        "report": "",
+        "stats": {},
+        "report": {},
     })
 
     annotations = eval_state.get("turn_annotations", [])
@@ -85,14 +86,25 @@ def _run_evaluation(messages, revealed_items, scenario, graph, scenario_title):
             print(f"  Simulated response: {alt['simulated_response']}")
     print()
 
-    report = eval_state.get("report", "")
+    report = eval_state.get("report", {})
     if report:
         print("=" * 60)
         print("  FEEDBACK REPORT")
         print("=" * 60)
         print()
-        print(report)
-        print()
+        summary = report.get("summary", "")
+        if summary:
+            print(f"SUMMARY: {summary}\n")
+        for section in ("continue", "stop", "start"):
+            items = report.get(section, [])
+            if items:
+                print(section.upper())
+                for item in items:
+                    turns = item.get("turns", [])
+                    turn_ref = f" (Turn {', '.join(str(t) for t in turns)})" if turns else ""
+                    print(f"  • {item['point']}{turn_ref}")
+                print()
+
 
     log_path = save_session(scenario_title, messages, revealed_items, eval_state)
     print(f"[LOG] Session saved to {log_path}")

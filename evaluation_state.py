@@ -17,4 +17,5 @@ class EvaluationState(TypedDict):
     turn_annotations: list    # one dict per consultant turn (output of turn_evaluator)
     simulated_alternatives: list  # reserved for future use
     topic_coverage: dict      # computed coverage stats (populated by report_generator)
-    report: str               # final report string (built by a later node)
+    stats: dict               # pre-computed turn/quality stats dict (populated by report_generator)
+    report: dict              # structured JSON report {summary, continue, stop, start}

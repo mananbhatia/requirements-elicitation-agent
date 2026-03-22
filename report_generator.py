@@ -2,12 +2,23 @@
 Report generator node — node 3 of the evaluation pipeline.
 
 Receives turn_annotations (node 1) and simulated_alternatives (node 2) and
-produces a structured feedback report in Continue/Stop/Start format.
+produces a structured JSON report stored in EvaluationState["report"].
 
-One LLM call. The full report is stored in the `report` field of EvaluationState.
+Report shape:
+  {
+    "summary": "One sentence overall impression.",
+    "continue": [{"point": "...", "turns": [2, 3]}, ...],
+    "stop":     [{"point": "...", "turns": [5]}, ...],
+    "start":    [{"point": "...", "turns": [5]}, ...]
+  }
+
+Statistics are computed in Python (_compute_stats) and passed as hard facts —
+the LLM must not recalculate them.
 """
 
 import os
+import re
+import json
 import warnings
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, AIMessage, HumanMessage as LCHumanMessage
@@ -16,15 +27,14 @@ from evaluation_state import EvaluationState
 from evaluator_core import _get_databricks_base_url, _get_databricks_token, _extract_content
 
 _REPORT_PROMPT = """\
-You are a senior consultant giving feedback to a junior colleague after reviewing their \
-requirements discovery interview. Be direct, specific, and constructive — write like a \
-senior colleague, not a formal report.
+You are giving structured feedback to a consultant after reviewing their requirements \
+discovery interview. Be direct and specific — write like a senior colleague.
 
-## Statistics (use these exact numbers, do not recalculate)
+## Statistics (use these exact numbers — do not recalculate)
 
 {stats_text}
 
-## Topic coverage (use these exact numbers, do not recalculate)
+## Topic coverage (use these exact numbers — do not recalculate)
 
 {coverage_text}
 
@@ -42,69 +52,52 @@ senior colleague, not a formal report.
 
 ## Your task
 
-Write a feedback report with exactly five sections: SUMMARY, COVERAGE, CONTINUE, STOP, START.
+Write structured feedback in three sections. Each section answers a fundamentally different \
+question — they must not overlap.
 
-**SUMMARY**
-Two or three sentences. Use the exact numbers from the Statistics section above. Report \
-the turn type breakdown naturally: how many questions were asked, how many solution \
-proposals were made, and how many turns were unproductive statements. Then report question \
-quality: how many questions had mistakes and how many failed to elicit information. Include \
-the topic coverage numbers: how many topics and subtopics were covered out of the total. \
-Add a brief overall impression.
+**CONTINUE — What specific skill did the consultant demonstrate?**
+Identify 1-2 specific TECHNIQUES the consultant used effectively. Not "asked good questions" — \
+that is obvious. What was the underlying skill? Did they build on the client's previous answer \
+to go deeper? Did they rephrase technical concepts in the client's terms? Did they use a solution \
+proposal to test an assumption? Name the technique, say briefly why it worked, cite 1-2 turns. \
+If only one genuine technique stands out, write one point.
 
-**COVERAGE**
-Report what was and was not explored, using the Topic coverage data above. Group by \
-top-level topic. For each top-level topic, state whether it was fully covered, partially \
-covered, or not explored at all. For partially covered or not covered topics, list the \
-specific missed subtopics by name. Keep this section factual — no recommendations here, \
-those belong in START. If all subtopics were covered, say so in one sentence.
+**STOP — What specific habit hurt the consultant?**
+Identify 1-2 BEHAVIOR PATTERNS that caused problems. The evidence is in the alternatives: if the \
+alternative worked better, that proves the original approach failed. Name the habit, reference 1 \
+turn as the clearest example, briefly note what the alternative achieved instead. If only one \
+pattern recurred, write one point.
 
-**CONTINUE**
-Focus on effective turns — questions where both is_well_formed and information_elicited are \
-true, AND solution proposals where information_elicited is true. These are the turns that \
-worked. Do not list every one — look for PATTERNS. What did the effective questions have \
-in common? If there were effective solution proposals, note what made them land (they \
-prompted the client to react, clarify, or reveal something new). Name the patterns and \
-illustrate each with one or two concrete examples, quoting the actual turn and referencing \
-the turn number.
+**START — What did the consultant leave unexplored?**
+Identify 1-2 GAPS — things the consultant did NOT do. Focus on:
+- Subtopics from the coverage data that were never explored, naming the specific subtopics
+- Areas where the consultant touched a topic superficially but deeper issues existed
+This section is grounded in the coverage stats and missed subtopics provided above. Do not invent \
+abstract technique recommendations.
 
-**STOP**
-Three separate analyses:
+**CRITICAL — Non-redundancy check:**
+Before outputting, read all your points across Continue, Stop, and Start together. For each point, \
+ask: does any other point across any section say essentially the same thing, just phrased differently \
+or from the opposite angle? If yes, delete the weaker one. The total output should contain 3-6 points \
+where every single point tells the consultant something the other points do not. It is better to have \
+3 strong unique points than 6 where half are redundant. If a section has zero unique insights not \
+already covered by another section, output an empty list for that section.
 
-First, mistake patterns in questions (is_well_formed: false, turn_type: question). Group \
-by mistake type. For each mistake type that appeared more than once: name it, describe the \
-pattern, give one concrete example by quoting the original question (with its turn number), \
-and use the improvement verdict from the alternatives section as evidence — quote it \
-directly. Prefer turns where alt_information_elicited is true as your primary example, \
-since these prove the fix worked. If the alternative also failed, note that even a \
-better-formed question did not help, and use the verdict to explain why. For mistake types \
-that appeared only once, mention them briefly without a full example. If no mistakes \
-recurred, say so clearly.
+**Format rules:**
+- Each point is one sentence. Maximum 25 words per point (turn references do not count).
+- Turn references go in the "turns" array. Maximum 2 turn numbers per point.
+- Maximum 2 points per section. Minimum 0 — an empty list is valid.
+- The summary is 1-2 sentences stating turn counts, mistake counts, and subtopic coverage using \
+the exact numbers from the Statistics section.
+- Output ONLY valid JSON. No markdown formatting, no code fences, no explanation before or after.
 
-Second, well-formed questions that did not elicit information (is_well_formed: true, \
-information_elicited: false, turn_type: question). For each such turn that has a simulated \
-alternative, use the improvement verdict to characterise what happened. Only report a \
-pattern if multiple turns share the same root cause. A single incident does not warrant a \
-general recommendation.
+**Example of expected output format (content is illustrative, not from this interview):**
 
-Third, unproductive statements (turn_type: unproductive_statement). Quote each one and \
-describe it as a missed opportunity. Use the simulated alternative from the alternatives \
-section to show what could have been asked instead. If there were none, omit this section.
+{{"summary": "Across 14 turns you asked 11 questions (8 well-formed, 3 with mistakes), elicited information in 9, and covered 8 of 12 subtopics.", "continue": [{{"point": "Built follow-up chains where each question narrowed based on the client's previous answer", "turns": [4, 5]}}, {{"point": "Rephrased technical proposals in the client's business language, drawing out practical concerns", "turns": [9]}}], "stop": [{{"point": "Used technical acronyms the client couldn't understand, stalling the conversation", "turns": [7]}}, {{"point": "Made reactive comments instead of asking questions, wasting discovery opportunities", "turns": [11]}}], "start": [{{"point": "Explore the 3 missed subtopics: storage configuration, compliance readiness, and workload placement", "turns": []}}, {{"point": "Probe deeper on identity management — only surface-level facts were uncovered despite multiple items existing", "turns": []}}]}}
 
-**START**
-2–4 actionable recommendations derived from the actual failures above. Draw from all \
-failure types: question mistake patterns, well-formed questions that got no information, \
-and unproductive statements. Where missed topics are linked to question quality failures, \
-connect them. Where a simulated alternative proved the fix worked \
-(alt_information_elicited: true), use it as a concrete illustration of the recommendation. \
-Be concrete — tell them exactly what to do differently.
+Now write the actual feedback for this interview:
 
-Format rules:
-- Use plain text with the section headers: SUMMARY, COVERAGE, CONTINUE, STOP, START
-- No bullet points inside SUMMARY or CONTINUE — write in prose
-- COVERAGE, STOP and START may use short paragraphs or minimal bullets where it aids clarity
-- Quote actual questions from the transcript where instructed — do not paraphrase
-- Reference turn numbers when citing specific examples
+{{"summary": "...", "continue": [...], "stop": [...], "start": [...]}}
 """
 
 
@@ -185,23 +178,19 @@ def _compute_coverage(topic_taxonomy: dict, scenario_items: list, revealed_items
 
     Returns a dict suitable for both LLM formatting and Streamlit rendering.
     """
-    # Subtopic codes are taxonomy entries that contain a "/"
     taxonomy_subtopics = {code for code in topic_taxonomy if "/" in code}
 
-    # Subtopics that have at least one item in the scenario
     subtopics_in_scenario = {
         item["topic"] for item in scenario_items
         if item.get("topic") and "/" in item["topic"]
     } & taxonomy_subtopics
 
-    # Subtopics touched by at least one revealed item
     revealed_subtopic_codes = {
         item["topic"] for item in revealed_items
         if item.get("topic") and "/" in item.get("topic", "")
     }
     subtopics_covered = subtopics_in_scenario & revealed_subtopic_codes
 
-    # Build parent -> sorted subtopics mapping (only subtopics present in scenario)
     parent_to_subtopics: dict[str, list] = {}
     for code in subtopics_in_scenario:
         parent = code.split("/")[0]
@@ -267,16 +256,17 @@ def _format_coverage_text(coverage: dict, topic_taxonomy: dict) -> str:
     return "\n".join(lines)
 
 
-def _compute_stats(annotations: list) -> str:
-    # Split by turn type.
+def _compute_stats(annotations: list) -> dict:
+    """
+    Compute turn and quality statistics from annotations.
+    Returns a dict consumed by both _format_stats_text (for the LLM) and Streamlit (for display).
+    """
     questions = [a for a in annotations if a.get("turn_type", "question") == "question"]
     proposals = [a for a in annotations if a.get("turn_type") == "solution_proposal"]
     unproductive = [a for a in annotations if a.get("turn_type") == "unproductive_statement"]
     skipped = [a for a in annotations if a.get("turn_type") in ("explanation", "acknowledgment")]
 
     total = len(annotations)
-
-    # Question-only quality stats.
     q_total = len(questions)
     q_with_mistakes = sum(1 for a in questions if a.get("is_well_formed") is False)
     q_no_mistakes = q_total - q_with_mistakes
@@ -286,7 +276,8 @@ def _compute_stats(annotations: list) -> str:
         1 for a in questions
         if a.get("is_well_formed") is True and a.get("information_elicited") is False
     )
-    gold_examples = q_not_elicited  # questions that failed — primary alternatives targets
+    sp_elicited = sum(1 for a in proposals if a.get("information_elicited") is True)
+    sp_not_elicited = len(proposals) - sp_elicited
 
     mistake_counts: dict[str, int] = {}
     for ann in questions:
@@ -294,48 +285,56 @@ def _compute_stats(annotations: list) -> str:
             mt = m.get("mistake_type", "unknown")
             mistake_counts[mt] = mistake_counts.get(mt, 0) + 1
 
-    # Solution proposal stats.
-    sp_elicited = sum(1 for a in proposals if a.get("information_elicited") is True)
-    sp_not_elicited = len(proposals) - sp_elicited
+    return {
+        "total_turns": total,
+        "questions_total": q_total,
+        "questions_well_formed": q_no_mistakes,
+        "questions_with_mistakes": q_with_mistakes,
+        "questions_information_elicited": q_elicited,
+        "questions_no_information_elicited": q_not_elicited,
+        "questions_well_formed_no_info": q_well_formed_no_info,
+        "solution_proposals_total": len(proposals),
+        "solution_proposals_information_elicited": sp_elicited,
+        "solution_proposals_no_information_elicited": sp_not_elicited,
+        "unproductive_statements": len(unproductive),
+        "explanations_acknowledgments": len(skipped),
+        "mistake_type_frequencies": dict(sorted(mistake_counts.items(), key=lambda x: -x[1])),
+    }
 
+
+def _format_stats_text(stats: dict) -> str:
+    """Format a stats dict as plain text for the LLM prompt."""
     lines = [
-        f"Total consultant turns: {total}",
-        f"  Questions: {q_total}",
-        f"  Solution proposals: {len(proposals)}",
-        f"  Unproductive statements: {len(unproductive)}",
-        f"  Explanations / acknowledgments (skipped): {len(skipped)}",
+        f"Total consultant turns: {stats['total_turns']}",
+        f"  Questions: {stats['questions_total']}",
+        f"  Solution proposals: {stats['solution_proposals_total']}",
+        f"  Unproductive statements: {stats['unproductive_statements']}",
+        f"  Explanations / acknowledgments (skipped): {stats['explanations_acknowledgments']}",
         "",
-        "Question quality (questions only):",
-        f"  Well-formed (no mistakes): {q_no_mistakes}",
-        f"  With mistakes: {q_with_mistakes}",
-        f"  Elicited information: {q_elicited}",
-        f"  Did not elicit information: {q_not_elicited}",
-        f"  Well-formed but no information elicited: {q_well_formed_no_info}",
-        f"  Candidate gold examples (questions that failed to elicit): {gold_examples}",
+        "Question quality:",
+        f"  Well-formed (no mistakes): {stats['questions_well_formed']}",
+        f"  With mistakes: {stats['questions_with_mistakes']}",
+        f"  Elicited information: {stats['questions_information_elicited']}",
+        f"  Did not elicit information: {stats['questions_no_information_elicited']}",
+        f"  Well-formed but no information elicited: {stats['questions_well_formed_no_info']}",
     ]
-    if mistake_counts:
+    if stats.get("mistake_type_frequencies"):
         freq = ", ".join(
             f"{mt}: {count}"
-            for mt, count in sorted(mistake_counts.items(), key=lambda x: -x[1])
+            for mt, count in stats["mistake_type_frequencies"].items()
         )
         lines.append(f"  Mistake type frequencies: {freq}")
     else:
         lines.append("  Mistake type frequencies: (none)")
-
-    if proposals:
+    if stats.get("solution_proposals_total", 0) > 0:
         lines += [
             "",
             "Solution proposals:",
-            f"  Proposals that elicited information: {sp_elicited}",
-            f"  Proposals that did not elicit information: {sp_not_elicited}",
+            f"  Elicited information: {stats['solution_proposals_information_elicited']}",
+            f"  Did not elicit information: {stats['solution_proposals_no_information_elicited']}",
         ]
-
-    if unproductive:
-        lines += [
-            "",
-            f"Unproductive statements: {len(unproductive)} (missed opportunities to ask or propose)",
-        ]
-
+    if stats.get("unproductive_statements", 0) > 0:
+        lines.append(f"\nUnproductive statements: {stats['unproductive_statements']} (missed opportunities)")
     return "\n".join(lines)
 
 
@@ -350,7 +349,8 @@ def report_generator(state: EvaluationState) -> dict:
     print("[REPORT] Generating feedback report...")
 
     coverage = _compute_coverage(topic_taxonomy, scenario_items, revealed_items)
-    stats_text = _compute_stats(annotations)
+    stats = _compute_stats(annotations)
+    stats_text = _format_stats_text(stats)
     coverage_text = _format_coverage_text(coverage, topic_taxonomy)
     transcript_text = _format_transcript(transcript)
     annotations_text = _format_annotations(annotations)
@@ -374,7 +374,25 @@ def report_generator(state: EvaluationState) -> dict:
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", category=UserWarning, module="pydantic")
         response = llm.invoke([LCHumanMessage(content=prompt)])
-    report = _extract_content(response)
+    raw = _extract_content(response)
+
+    # Parse JSON — strip code fences, then locate the report JSON by its known first key.
+    # Using rfind('{"summary":') avoids greedy-regex capturing reasoning-block text that
+    # contains '{' before the actual JSON, which caused json.loads to fail.
+    try:
+        if "```" in raw:
+            raw = re.sub(r"```[a-z]*\n?", "", raw).replace("```", "").strip()
+        start = raw.rfind('{"summary":')
+        if start != -1:
+            raw = raw[start:]
+        else:
+            json_match = re.search(r"\{.*\}", raw, re.DOTALL)
+            if json_match:
+                raw = json_match.group(0)
+        report_dict = json.loads(raw)
+    except (json.JSONDecodeError, Exception) as e:
+        print(f"[REPORT] Failed to parse JSON report: {e}. Raw output:\n{raw[:500]}")
+        report_dict = {"summary": "Report generation failed — see terminal for raw output.", "continue": [], "stop": [], "start": []}
 
     print("[REPORT] Report generation complete.")
-    return {"report": report, "topic_coverage": coverage}
+    return {"report": report_dict, "topic_coverage": coverage, "stats": stats}

@@ -5,8 +5,8 @@ Thin UI layer over the existing conversation and evaluation pipeline.
 All graph logic lives in graph.py, eval_graph.py, knowledge.py, session_logger.py.
 """
 
+import json
 from pathlib import Path
-from datetime import date
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -116,7 +116,6 @@ def _render_sidebar():
             st.divider()
             st.markdown("**Topics to cover**")
             taxonomy = scenario.topic_taxonomy
-            # Group subtopics under their parent
             top_level = {k: v for k, v in taxonomy.items() if "/" not in k}
             for code, display in top_level.items():
                 subtopics = [v for k, v in taxonomy.items() if k.startswith(code + "/")]
@@ -141,18 +140,15 @@ def _render_sidebar():
 
 def _render_conversation():
     for msg in st.session_state.messages:
-        role_label = "You" if msg["role"] == "consultant" else "Client"
         avatar = "🧑‍💼" if msg["role"] == "consultant" else "👤"
         with st.chat_message(msg["role"], avatar=avatar):
             st.markdown(msg["content"])
 
     if prompt := st.chat_input("Ask a question..."):
-        # Display consultant message immediately
         with st.chat_message("consultant", avatar="🧑‍💼"):
             st.markdown(prompt)
         st.session_state.messages.append({"role": "consultant", "content": prompt})
 
-        # Run through conversation graph
         lc_msg = HumanMessage(content=prompt)
         st.session_state.lc_messages.append(lc_msg)
 
@@ -173,7 +169,7 @@ def _render_conversation():
 
 
 # ---------------------------------------------------------------------------
-# Evaluation phase
+# Evaluation phase — pipeline runner
 # ---------------------------------------------------------------------------
 
 def _run_evaluation():
@@ -187,7 +183,6 @@ def _run_evaluation():
 
     messages = st.session_state.lc_messages
 
-    # Count consultant turns (excluding hidden opening prompt) for progress tracking.
     consultant_turns = [
         m for m in messages
         if (isinstance(m, HumanMessage) or (isinstance(m, dict) and m.get("type") == "human"))
@@ -204,11 +199,10 @@ def _run_evaluation():
         "turn_annotations": [],
         "simulated_alternatives": [],
         "topic_coverage": {},
-        "report": "",
+        "stats": {},
+        "report": {},
     }
 
-    # Step 1: evaluate each turn individually so progress bar advances per turn.
-    # Step 1 occupies 0–33% of the bar.
     transcript_text = format_transcript(messages)
     annotations = []
     turn_index = 0
@@ -257,6 +251,10 @@ def _run_evaluation():
     st.rerun()
 
 
+# ---------------------------------------------------------------------------
+# Evaluation display helpers
+# ---------------------------------------------------------------------------
+
 def _get_client_response(turn_index: int) -> str:
     """Return the client's response to the consultant's nth turn from lc_messages."""
     messages = st.session_state.lc_messages
@@ -272,7 +270,6 @@ def _get_client_response(turn_index: int) -> str:
             continue
         consultant_count += 1
         if consultant_count == turn_index:
-            # Next message should be the client's response
             if i + 1 < len(messages):
                 next_msg = messages[i + 1]
                 if hasattr(next_msg, "content"):
@@ -289,7 +286,6 @@ def _turn_icon(turn_type: str, well_formed, info_elicited) -> str:
         return "✅" if info_elicited else "⚠️"
     if turn_type == "unproductive_statement":
         return "🔴"
-    # question
     if well_formed and info_elicited:
         return "✅"
     if well_formed and not info_elicited:
@@ -297,47 +293,9 @@ def _turn_icon(turn_type: str, well_formed, info_elicited) -> str:
     return "🔴"
 
 
-def _render_coverage(eval_state: dict):
-    """Render a topic coverage summary above the evaluation tabs."""
-    coverage = eval_state.get("topic_coverage", {})
-    if not coverage:
-        return
-
-    scenario = get_scenario(st.session_state.scenario_path)
-    taxonomy = scenario.topic_taxonomy
-
-    n_top = coverage.get("topics_covered", 0)
-    n_top_total = coverage.get("topics_total", 0)
-    n_sub = coverage.get("subtopics_covered", 0)
-    n_sub_total = coverage.get("subtopics_total", 0)
-
-    st.markdown("### Topic Coverage")
-    st.markdown(f"**{n_top} / {n_top_total} topics** &nbsp;·&nbsp; **{n_sub} / {n_sub_total} subtopics**", unsafe_allow_html=True)
-
-    covered_set = set(coverage.get("subtopics_covered_list", []))
-    fully_covered = set(coverage.get("topics_fully_covered", []))
-    partially_covered = set(coverage.get("topics_partially_covered", []))
-    parent_to_subtopics = coverage.get("parent_to_subtopics", {})
-
-    for parent_code in sorted(parent_to_subtopics):
-        subtopics = parent_to_subtopics[parent_code]
-        parent_display = taxonomy.get(parent_code, parent_code)
-
-        if parent_code in fully_covered:
-            icon = "✅"
-        elif parent_code in partially_covered:
-            icon = "⚠️"
-        else:
-            icon = "🔴"
-
-        with st.expander(f"{icon} {parent_display}"):
-            for sub_code in subtopics:
-                sub_display = taxonomy.get(sub_code, sub_code)
-                sub_icon = "✅" if sub_code in covered_set else "🔴"
-                st.markdown(f"{sub_icon} {sub_display}")
-
-    st.divider()
-
+# ---------------------------------------------------------------------------
+# Evaluation display — single page, three stacked sections
+# ---------------------------------------------------------------------------
 
 def _render_evaluation():
     eval_state = st.session_state.eval_state
@@ -346,127 +304,223 @@ def _render_evaluation():
         a["turn_index"]: a
         for a in eval_state.get("simulated_alternatives", [])
     }
-    report = eval_state.get("report", "")
+    report = eval_state.get("report", {})
+    stats = eval_state.get("stats", {})
+    coverage = eval_state.get("topic_coverage", {})
+    scenario = get_scenario(st.session_state.scenario_path)
+    taxonomy = scenario.topic_taxonomy
 
-    if st.session_state.log_path:
-        st.info(f"Session logged to {st.session_state.log_path}")
+    # -------------------------------------------------------------------------
+    # Section 1: Stats bar + Coverage grid
+    # -------------------------------------------------------------------------
+    q_total = stats.get("questions_total", 0)
+    q_well = stats.get("questions_well_formed", 0)
+    q_info = stats.get("questions_information_elicited", 0)
+    n_sub = coverage.get("subtopics_covered", 0)
+    n_sub_total = coverage.get("subtopics_total", 0)
+    well_pct = int(q_well / q_total * 100) if q_total else 0
+    info_pct = int(q_info / q_total * 100) if q_total else 0
 
-    _render_coverage(eval_state)
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Questions asked", q_total)
+    c2.metric("Well-formed", f"{q_well} ({well_pct}%)")
+    c3.metric("Info elicited", f"{q_info} ({info_pct}%)")
+    c4.metric("Subtopics covered", f"{n_sub} / {n_sub_total}")
 
-    tab_turns, tab_report = st.tabs(["Turn-by-Turn Analysis", "Feedback Report"])
+    # Coverage grid — 2 columns, compact inline subtopics
+    if coverage.get("parent_to_subtopics"):
+        st.markdown("**Topic Coverage**")
+        covered_set = set(coverage.get("subtopics_covered_list", []))
+        parent_to_subtopics = coverage.get("parent_to_subtopics", {})
+        # Preserve taxonomy order (insertion order), not alphabetical
+        parent_codes = [k for k in taxonomy if "/" not in k and k in parent_to_subtopics]
+        cols = st.columns(2)
+        for i, parent_code in enumerate(parent_codes):
+            subtopics = parent_to_subtopics[parent_code]
+            parent_display = taxonomy.get(parent_code, parent_code)
+            n_covered = sum(1 for s in subtopics if s in covered_set)
+            n_total = len(subtopics)
+            if n_covered == n_total:
+                frac_color = "#2e7d32"   # green — fully covered
+            elif n_covered == 0:
+                frac_color = "#c62828"   # red — nothing covered
+            else:
+                frac_color = "#e65100"   # orange — partial
+            frac_html = f'<span style="color:{frac_color};font-weight:normal;">({n_covered}/{n_total})</span>'
+            sub_parts = [
+                f"{'✅' if s in covered_set else '❌'} {taxonomy.get(s, s)}"
+                for s in subtopics
+            ]
+            with cols[i % 2]:
+                st.markdown(f"**{parent_display}** {frac_html}", unsafe_allow_html=True)
+                st.caption(" · ".join(sub_parts))
 
-    with tab_turns:
-        if not annotations:
-            st.write("No consultant turns found to evaluate.")
-        else:
-            for ann in annotations:
-                idx = ann.get("turn_index", "?")
-                question = ann.get("question", "")
-                mistakes = ann.get("mistakes", [])
-                well_formed = ann.get("is_well_formed")
-                info_elicited = ann.get("information_elicited")
-                turn_type = ann.get("turn_type", "question")
-                icon = _turn_icon(turn_type, well_formed, info_elicited)
+    st.divider()
 
-                # Skip explanation/acknowledgment turns — they add noise to the display.
-                if turn_type in ("explanation", "acknowledgment"):
-                    continue
+    # -------------------------------------------------------------------------
+    # Section 2: Summary + Continue / Stop / Start
+    # -------------------------------------------------------------------------
+    if report:
+        summary = report.get("summary", "")
+        if summary:
+            st.markdown(f"*{summary}*")
+            st.markdown("")
 
-                type_label = {
-                    "question": "Question",
-                    "solution_proposal": "Solution proposal",
-                    "unproductive_statement": "⚠ Unproductive statement",
-                }.get(turn_type, turn_type)
+        col_c, col_s, col_st = st.columns(3)
 
-                alt = alternatives.get(idx)
+        with col_c:
+            st.subheader("✅ Continue")
+            for item in report.get("continue", []):
+                turns = item.get("turns", [])
+                turn_ref = f" *(T{', '.join(str(t) for t in turns)})*" if turns else ""
+                st.markdown(f"- {item['point']}{turn_ref}")
 
-                with st.expander(f"{icon} Turn {idx} [{type_label}]: {question[:70]}{'...' if len(question) > 70 else ''}"):
-                    # Assessment badges — only show applicable fields
-                    if turn_type == "question":
-                        col1, col2 = st.columns(2)
-                        with col1:
-                            status = "✅ Yes" if well_formed else "🔴 No"
-                            st.markdown(f"**Well-formed:** {status}")
-                        with col2:
-                            status = "✅ Yes" if info_elicited else "⚠️ No"
-                            st.markdown(f"**Information elicited:** {status}")
-                    elif turn_type == "solution_proposal":
-                        status = "✅ Yes" if info_elicited else "⚠️ No"
-                        st.markdown(f"**Information elicited:** {status}")
-                    elif turn_type == "unproductive_statement":
-                        st.markdown("**Well-formed:** 🔴 No — statement made instead of asking a question")
+        with col_s:
+            st.subheader("🛑 Stop")
+            for item in report.get("stop", []):
+                turns = item.get("turns", [])
+                turn_ref = f" *(T{', '.join(str(t) for t in turns)})*" if turns else ""
+                st.markdown(f"- {item['point']}{turn_ref}")
 
-                    if mistakes:
-                        st.markdown("**Mistakes:**")
-                        for m in mistakes:
-                            st.markdown(f"- `{m['mistake_type']}` — {m['explanation']}")
+        with col_st:
+            st.subheader("🚀 Start")
+            for item in report.get("start", []):
+                turns = item.get("turns", [])
+                turn_ref = f" *(T{', '.join(str(t) for t in turns)})*" if turns else ""
+                st.markdown(f"- {item['point']}{turn_ref}")
 
-                    st.divider()
+    st.divider()
 
-                    client_response = alt["original_response"] if alt else _get_client_response(idx)
+    # -------------------------------------------------------------------------
+    # Section 3: Turn-by-turn detail (collapsed) — individual expander per turn
+    # -------------------------------------------------------------------------
+    def _esc(text: str) -> str:
+        return text.replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br>")
 
-                    def _esc(text: str) -> str:
-                        return text.replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br>")
+    def _render_comparison_table(question, danny_response, alt, well_formed, info_elicited):
+        wf_icon = "✅" if well_formed is True else ("🔴" if well_formed is False else "—")
+        ie_icon = "✅" if info_elicited is True else ("⚠️" if info_elicited is False else "—")
+        wf_label = "Yes" if well_formed is True else ("No" if well_formed is False else "N/A")
+        ie_label = "Yes" if info_elicited is True else ("No" if info_elicited is False else "N/A")
+        orig_badges = f"Well-formed: {wf_icon} {wf_label} &nbsp;&nbsp; Info elicited: {ie_icon} {ie_label}"
 
-                    if alt:
-                        alt_wf = alt.get("alt_is_well_formed", True)
-                        alt_ie = alt.get("alt_information_elicited", True)
-                        verdict = alt.get("improvement_verdict", "")
-                        alt_wf_badge = "✅ Yes" if alt_wf else "🔴 No"
-                        alt_ie_badge = "✅ Yes" if alt_ie else "⚠️ No"
-                        right_q_cell = (
-                            f"{_esc(alt['alternative_question'])}<br><br>"
-                            f"<small><strong>Well-formed:</strong> {alt_wf_badge} &nbsp; "
-                            f"<strong>Info elicited:</strong> {alt_ie_badge}</small>"
-                        )
-                        right_r_cell = _esc(alt["simulated_response"])
-                    else:
-                        right_q_cell = "—"
-                        right_r_cell = "—"
-                        verdict = ""
-
-                    st.markdown(f"""
-<table style="width:100%; border-collapse:collapse; font-size:0.9em;">
+        alt_wf_badge = "✅" if alt.get("alt_is_well_formed", True) else "🔴"
+        alt_ie_badge = "✅" if alt.get("alt_information_elicited", True) else "⚠️"
+        alt_wf_label = "Yes" if alt.get("alt_is_well_formed", True) else "No"
+        alt_ie_label = "Yes" if alt.get("alt_information_elicited", True) else "No"
+        verdict = alt.get("improvement_verdict", "")
+        st.markdown(f"""
+<table style="width:100%;border-collapse:collapse;font-size:0.88em;margin-top:4px;">
   <thead>
     <tr>
-      <th style="width:50%; border:1px solid #ddd; padding:8px; background:#f8f9fa;">Original</th>
-      <th style="width:50%; border:1px solid #ddd; padding:8px; background:#f8f9fa;">Alternative</th>
+      <th style="width:50%;border:1px solid #ddd;padding:5px 6px;background:#f8f9fa;">Original</th>
+      <th style="width:50%;border:1px solid #ddd;padding:5px 6px;background:#f8f9fa;">Alternative</th>
     </tr>
   </thead>
   <tbody>
     <tr>
-      <td style="border:1px solid #ddd; padding:8px; vertical-align:top;"><strong>Question</strong><br><br>{_esc(question)}</td>
-      <td style="border:1px solid #ddd; padding:8px; vertical-align:top;"><strong>Question</strong><br><br>{right_q_cell}</td>
+      <td style="border:1px solid #ddd;padding:5px 6px;vertical-align:top;"><strong>Question</strong><br>{_esc(question)}<br><small>{orig_badges}</small></td>
+      <td style="border:1px solid #ddd;padding:5px 6px;vertical-align:top;"><strong>Question</strong><br>{_esc(alt['alternative_question'])}<br><small>Well-formed: {alt_wf_badge} {alt_wf_label} &nbsp;&nbsp; Info elicited: {alt_ie_badge} {alt_ie_label}</small></td>
     </tr>
     <tr>
-      <td style="border:1px solid #ddd; padding:8px; vertical-align:top;"><strong>Client's response</strong><br><br>{_esc(client_response)}</td>
-      <td style="border:1px solid #ddd; padding:8px; vertical-align:top;"><strong>Simulated response</strong><br><br>{right_r_cell}</td>
+      <td style="border:1px solid #ddd;padding:5px 6px;vertical-align:top;"><strong>Client's response</strong><br>{_esc(danny_response)}</td>
+      <td style="border:1px solid #ddd;padding:5px 6px;vertical-align:top;"><strong>Simulated response</strong><br>{_esc(alt['simulated_response'])}</td>
     </tr>
   </tbody>
 </table>
 """, unsafe_allow_html=True)
-                    if verdict:
-                        st.caption(f"**Verdict:** {verdict}")
-                    elif not alt:
-                        st.caption("No alternative generated — question was well-formed and elicited information.")
+        if verdict:
+            st.caption(f"**Verdict:** {verdict}")
 
-    with tab_report:
-        if not report:
-            st.write("No report generated.")
+    with st.expander("Turn-by-Turn Detail", expanded=False):
+        if not annotations:
+            st.write("No consultant turns to display.")
         else:
+            for ann in annotations:
+                idx = ann.get("turn_index", "?")
+                question = ann.get("question", "")
+                turn_type = ann.get("turn_type", "question")
+                well_formed = ann.get("is_well_formed")
+                info_elicited = ann.get("information_elicited")
+                mistakes = ann.get("mistakes", [])
+                icon = _turn_icon(turn_type, well_formed, info_elicited)
+                danny_response = _get_client_response(idx)
+                alt = alternatives.get(idx)
+
+                q_short = (question[:80] + "…") if len(question) > 80 else question
+                with st.expander(f"{icon} Turn {idx} [{turn_type}]: {q_short}", expanded=False):
+                    wf_icon = "✅" if well_formed is True else ("🔴" if well_formed is False else "—")
+                    ie_icon = "✅" if info_elicited is True else ("⚠️" if info_elicited is False else "—")
+                    wf_label = "Yes" if well_formed is True else ("No" if well_formed is False else "N/A")
+                    ie_label = "Yes" if info_elicited is True else ("No" if info_elicited is False else "N/A")
+                    badges_md = f"**Well-formed:** {wf_icon} {wf_label} &nbsp;&nbsp;&nbsp; **Info elicited:** {ie_icon} {ie_label}"
+
+                    if turn_type in ("acknowledgment", "explanation"):
+                        st.caption(f"Not evaluated — {turn_type}")
+                        st.markdown(f"**Consultant:** {question}")
+                        if danny_response:
+                            st.markdown(f"**Client:** {danny_response}")
+
+                    elif turn_type == "solution_proposal":
+                        if info_elicited is True:
+                            st.markdown(badges_md, unsafe_allow_html=True)
+                            st.markdown(f"**Consultant:** {question}")
+                            if danny_response:
+                                st.markdown(f"**Client:** {danny_response}")
+                        elif alt:
+                            _render_comparison_table(question, danny_response, alt, well_formed, info_elicited)
+                        else:
+                            st.markdown(badges_md, unsafe_allow_html=True)
+                            st.markdown(f"**Consultant:** {question}")
+                            if danny_response:
+                                st.markdown(f"**Client:** {danny_response}")
+
+                    elif turn_type == "unproductive_statement":
+                        if mistakes:
+                            expl = mistakes[0].get("explanation", "")
+                            st.markdown(f"**Mistake:** `{mistakes[0]['mistake_type']}` — {expl}")
+                        if alt:
+                            _render_comparison_table(question, danny_response, alt, well_formed, info_elicited)
+                        else:
+                            st.markdown(badges_md, unsafe_allow_html=True)
+                            st.markdown(f"**Consultant:** {question}")
+                            if danny_response:
+                                st.markdown(f"**Client:** {danny_response}")
+
+                    else:
+                        # question turn
+                        is_clean = well_formed is True and info_elicited is True
+                        if is_clean:
+                            st.markdown(badges_md, unsafe_allow_html=True)
+                            st.markdown(f"**Consultant:** {question}")
+                            if danny_response:
+                                st.markdown(f"**Client:** {danny_response}")
+                        else:
+                            if mistakes:
+                                expl = mistakes[0].get("explanation", "")
+                                st.markdown(f"**Mistake:** `{mistakes[0]['mistake_type']}` — {expl}")
+                            elif info_elicited is False:
+                                st.caption("Well-formed — did not elicit new information.")
+                            if alt:
+                                _render_comparison_table(question, danny_response, alt, well_formed, info_elicited)
+                            else:
+                                st.markdown(badges_md, unsafe_allow_html=True)
+                                st.markdown(f"**Consultant:** {question}")
+                                if danny_response:
+                                    st.markdown(f"**Client:** {danny_response}")
+
+    # -------------------------------------------------------------------------
+    # Download session log
+    # -------------------------------------------------------------------------
+    if st.session_state.log_path:
+        log_file = Path(st.session_state.log_path)
+        if log_file.exists():
             st.download_button(
-                label="Download report",
-                data=report,
-                file_name=f"interview_feedback_{date.today()}.md",
-                mime="text/markdown",
+                label="Download session log",
+                data=log_file.read_text(encoding="utf-8"),
+                file_name=log_file.name,
+                mime="application/json",
             )
-            # Render section headers as visual separators
-            for line in report.split("\n"):
-                stripped = line.strip()
-                if stripped in ("SUMMARY", "COVERAGE", "CONTINUE", "STOP", "START"):
-                    st.markdown(f"### {stripped}")
-                else:
-                    st.markdown(line)
 
 
 # ---------------------------------------------------------------------------

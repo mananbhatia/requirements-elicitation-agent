@@ -25,11 +25,12 @@ Returns simulated_alternatives — list of dicts:
 
 import re
 import json
-from langchain_anthropic import ChatAnthropic
+import warnings
+from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, AIMessage
 
 from evaluation_state import EvaluationState
-from evaluator_core import MISTAKE_TYPES, format_transcript, evaluate_turn
+from evaluator_core import MISTAKE_TYPES, format_transcript, evaluate_turn, _extract_content
 
 _ALT_PROMPT = """\
 You are helping a consultant improve their requirements interview technique.
@@ -139,7 +140,14 @@ def build_alternative_simulator(conversation_graph):
     Returns the alternative_simulator node as a closure over the conversation graph.
     The conversation graph is used in Stage B to simulate client responses.
     """
-    llm = ChatAnthropic(model="claude-sonnet-4-6", temperature=0.3)
+    from evaluator_core import _get_databricks_base_url, _get_databricks_token
+    llm = ChatOpenAI(
+        model="databricks-gpt-oss-120b",
+        base_url=_get_databricks_base_url(),
+        api_key=_get_databricks_token(),
+        temperature=0.3,
+        extra_body={"reasoning_effort": "high"},
+    )
 
     def alternative_simulator(state: EvaluationState) -> dict:
         annotations = state.get("turn_annotations", [])
@@ -211,8 +219,10 @@ def build_alternative_simulator(conversation_graph):
             )
 
             try:
-                alt_response = llm.invoke([HumanMessage(content=alt_prompt)])
-                alternative_question = alt_response.content.strip()
+                with warnings.catch_warnings():
+                    warnings.filterwarnings("ignore", category=UserWarning, module="pydantic")
+                    alt_response = llm.invoke([HumanMessage(content=alt_prompt)])
+                alternative_question = _extract_content(alt_response).strip()
                 print(f"[SIM]   Alternative: {alternative_question!r}")
             except Exception as e:
                 print(f"[SIM]   Failed to generate alternative for turn {turn_index}: {e}")
@@ -251,8 +261,10 @@ def build_alternative_simulator(conversation_graph):
                 simulated_response=simulated_response,
             )
             try:
-                verdict_response = llm.invoke([HumanMessage(content=verdict_prompt)])
-                improvement_verdict = verdict_response.content.strip()
+                with warnings.catch_warnings():
+                    warnings.filterwarnings("ignore", category=UserWarning, module="pydantic")
+                    verdict_response = llm.invoke([HumanMessage(content=verdict_prompt)])
+                improvement_verdict = _extract_content(verdict_response).strip()
                 print(f"[SIM]   Verdict: {improvement_verdict!r}")
             except Exception as e:
                 improvement_verdict = ""

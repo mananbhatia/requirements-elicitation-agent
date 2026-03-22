@@ -174,7 +174,7 @@ Assess two things independently for this turn:
 Important:
 - Many turns will have zero mistakes. That is fine and expected. Do not force-find problems.
 - Only flag a mistake if it clearly applies to this question given the context.
-- Each flagged mistake type must independently apply to the question on its own merits. Do not flag a mistake type to explain or reinforce why another mistake type applies. For example, "Ask a question that is too long or articulated" means the question is literally too long or complex — it does not apply to a question that is too short or minimal.
+- If this question has a problem, identify the SINGLE most fundamental mistake type — the root cause that, if fixed, would most likely resolve any other issues with the question. If multiple types seem to apply, they are usually symptoms of the same underlying problem. Pick the one that best describes WHY the question failed, not every label that could technically apply. Return exactly one mistake object or an empty list.
 - The "ask a question that involves multiple kinds of requirements" mistake type applies only when multiple distinct questions are bundled into a single turn. It does NOT apply when a single question merely shifts to a new topic compared to the previous turn. A topic change is not the same as asking multiple questions at once.
 
 Output ONLY a JSON object, no explanation, no reasoning, no other text:
@@ -190,7 +190,7 @@ Output ONLY a JSON object, no explanation, no reasoning, no other text:
   "information_elicited": true or false
 }}
 
-If there are no mistakes, return "mistakes": [].
+"mistakes" contains at most one item. If there are no mistakes, return "mistakes": [].
 """
 
 

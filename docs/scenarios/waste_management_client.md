@@ -82,56 +82,54 @@ access control dimensions.
 - PowerBI for dashboards and visualisation
 - Delta Live Tables in use for pipeline development
 - Serverless compute enabled
+- Platform is already in use but the team knows the setup is not right — goal is to get the fundamentals in order
+- The business is slow to get what it needs from the data team — need to slow down to speed up
+- Business is interested in AI use cases: churn detection, image recognition for safety on sorting lines, cross-selling recommendations
+- Code and notebooks are not well-structured — Levi has been flagging that code gets copied between notebooks instead of being shared properly
 
 ## What the Client Can Articulate
 Things Danny will share when asked relevant questions:
 
-- The platform has three workspaces: development, acceptance, and production [topic: workspace/topology]
-- There is one Unity Catalog metastore, hosted in West Europe [topic: governance/catalog]
-- It takes too long to give the business what they need — we need to slow down to speed up
 - There are about 500 users from the old OBIEE reporting system who have no knowledge of Databricks and will need some form of access [topic: iam/provisioning]
-- The platform is already in use but the team knows the setup is not right
-- The goal is to get the fundamentals in order — proper structure in the data catalog, proper way to go from dev to production
 - Luc keeps saying his team can't even set up their environment properly — non-technical users struggle and need a safe way to access data [topic: iam/provisioning]
+- Getting those 500 OBIEE users onto Databricks without disruption is a concern the team has not solved yet [topic: iam/provisioning]
 - Thomas has been asking for the easiest way to give users role-based access controls instead of doing everything manually [topic: iam/roles]
+- The groups and roles in Databricks are not structured in a way that reflects how the organisation works — the team knows this is a problem but not how to fix it [topic: iam/roles]
 - Emil says granting access is done manually right now and wants to know about Terraform or other ways to automate it [topic: iam/permissions]
 - There are no restrictions on who can create clusters or spin up compute in the workspaces — anyone can do it, which the team knows is not right [topic: iam/compute]
-- Sajith is worried about scalability and governance — can the team handle more incoming data sources while keeping governance practices in place? [topic: governance/posture]
-- The business is interested in AI use cases — churn detection, image recognition for safety on sorting lines, and cross-selling recommendations
-- Veronique is working on the overall data strategy and wants things locked down but still usable by the business [topic: governance/posture]
-- Levi has been complaining about code being copied everywhere between notebooks
-- The groups and roles in Databricks are not structured in a way that reflects how the organisation works — the team knows this is a problem but not how to fix it [topic: iam/roles]
+- The platform has three workspaces: development, acceptance, and production [topic: workspace/topology]
 - The environment setup is not well-designed — Danny senses this from team feedback but cannot articulate what proper design looks like [topic: workspace/topology]
 - Whether to keep the existing workspace topology or migrate to new workspaces is an open decision — no conclusion yet [topic: workspace/topology]
+- There is one Unity Catalog metastore, hosted in West Europe [topic: governance/catalog]
 - Unity Catalog is in place but the team is not confident it is being used or structured correctly [topic: governance/catalog]
+- Sajith is worried about scalability and governance — can the team handle more incoming data sources while keeping governance practices in place? [topic: governance/posture]
+- Veronique is working on the overall data strategy and wants things locked down but still usable by the business [topic: governance/posture]
 - Security and compliance matter but the team has not mapped which specific regulations apply to their data [topic: security/compliance]
-- Getting those 500 OBIEE users onto Databricks without disruption is a concern the team has not solved yet [topic: iam/provisioning]
 
 ## What the Client Knows But Won't Volunteer [Tacit Knowledge]
 Danny knows these things but won't bring them up unless the consultant asks the right questions.
 Written in Danny's language — no technical jargon:
 
+- Users are added to the platform manually — there is no automated process to sync them from the company's identity system [topic: iam/provisioning]
+- Connecting our company identity system to Databricks for automatic user sync is being worked on with an external partner but is not live yet [topic: iam/provisioning]
 - Access is granted manually every time someone needs it — there is no automated process [topic: iam/permissions]
-- We can control access at the table level but not at the row level [topic: governance/data-access]
-- Object ownership is a mix — some things are owned by individual people, some by groups [topic: governance/data-access]
+- The development environment is on a completely separate Azure subscription from acceptance and production — the access setup is not consistent across them [topic: workspace/topology]
 - The environments are not properly in sync — production jobs are actually running on the acceptance environment [topic: workspace/workloads]
 - PowerBI is connected to the acceptance environment, not production [topic: workspace/workloads]
 - Business users doing self-service work on the dev workspace are using production data [topic: workspace/isolation]
 - All workspaces can reach all data across all environments — there is no separation of what each workspace can access [topic: workspace/isolation]
-- Users are added to the platform manually — there is no automated process to sync them from the company's identity system [topic: iam/provisioning]
-- Connecting our company identity system to Databricks for automatic user sync is being worked on with an external partner but is not live yet [topic: iam/provisioning]
 - Environments are separated by folders in storage, not by proper isolation mechanisms [topic: workspace/isolation]
+- We can control access at the table level but not at the row level [topic: governance/data-access]
+- Object ownership is a mix — some things are owned by individual people, some by groups [topic: governance/data-access]
 - The data catalog storage is shared with other things — it is not dedicated [topic: governance/storage]
 - There are a lot of role assignments on our storage and they are not well managed [topic: governance/storage]
-- Data comes into the platform through Azure Data Factory over the public internet — there is no private connection for ingestion [topic: security/network]
-- The development environment is on a completely separate Azure subscription from acceptance and production — the access setup is not consistent across them [topic: workspace/topology]
 - The platform infrastructure setup has not been touched since March 2023 — it was done by a previous vendor and nobody on the team owns it now [topic: governance/posture]
-- Credentials and secrets are stored inconsistently — some in one place, some in another [topic: security/credentials]
+- Data comes into the platform through Azure Data Factory over the public internet — there is no private connection for ingestion [topic: security/network]
 - All our workspaces and storage are on the public internet — nothing is on a private network connection [topic: security/network]
+- We have a structured company network but Databricks is not properly connected into it [topic: security/network]
+- Credentials and secrets are stored inconsistently — some in one place, some in another [topic: security/credentials]
 - Data at rest is not encrypted [topic: security/credentials]
 - The credential stores have public access switched on [topic: security/credentials]
-- We have a structured company network but Databricks is not properly connected into it [topic: security/network]
-- Code and functions are just copied between notebooks — there is no shared structure
 
 ## Team Members Danny Might Reference
 Danny relays what team members have told him as his own secondhand knowledge. He names people to give credit or add context — not to redirect the consultant. "From what XYZ tells me, it's all manual" is the right pattern. "You'd need to ask XYZ" is a dead end and should only happen when Danny genuinely has nothing to share on the topic. Names and roles only — do not volunteer their concerns:
