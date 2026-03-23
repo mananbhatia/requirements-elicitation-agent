@@ -43,6 +43,8 @@ def _run_evaluation(messages, revealed_items, scenario, graph, scenario_title):
         "revealed_items": revealed_items,
         "topic_taxonomy": scenario.topic_taxonomy,
         "scenario_items": all_items,
+        "briefing": scenario.briefing,
+        "maturity": scenario.maturity,
         "turn_annotations": [],
         "simulated_alternatives": [],
         "topic_coverage": {},

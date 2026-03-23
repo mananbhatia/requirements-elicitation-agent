@@ -59,6 +59,7 @@ class Scenario:
     title: str
     character_text: str                        # always in system prompt
     briefing: str = ""                         # consultant-facing briefing text
+    maturity: str = ""                         # raw maturity level section body — passed to evaluator
     topic_taxonomy: dict = field(default_factory=dict)  # code -> display name
     surface_items: list[ScenarioItem] = field(default_factory=list)
     tacit_items: list[ScenarioItem] = field(default_factory=list)
@@ -123,6 +124,7 @@ def load_scenario(path: str | Path) -> Scenario:
 
     character_parts: list[str] = []
     briefing_parts: list[str] = []
+    maturity_text: str = ""
     topic_taxonomy: dict[str, str] = {}
     surface_items: list[ScenarioItem] = []
     tacit_items: list[ScenarioItem] = []
@@ -164,6 +166,8 @@ def load_scenario(path: str | Path) -> Scenario:
 
         if is_character:
             character_parts.append(header.strip() + "\n" + body.strip())
+            if "maturity level" in header_lower:
+                maturity_text = body.strip()
             continue
 
         if is_tacit:
@@ -190,6 +194,7 @@ def load_scenario(path: str | Path) -> Scenario:
         title=title,
         character_text=character_text,
         briefing="\n".join(briefing_parts),
+        maturity=maturity_text,
         topic_taxonomy=topic_taxonomy,
         surface_items=surface_items,
         tacit_items=tacit_items,
@@ -250,9 +255,6 @@ If the question is broad, return at most the one item that most centrally charac
 that area — or none if even that is a stretch. Broad questions earn little.
 If the question is specific and directly targets something, return the items it targets.
 
-Apply a stricter bar for TACIT items — a tacit item is only earned if the question asks
-specifically about the current state or process for that topic, not just the topic area.
-
 Order matched_ids by decreasing relevance — most directly targeted item first.
 
 SURFACE items:
@@ -283,7 +285,15 @@ def retrieve_relevant_knowledge(
     unrevealed_surface = [t for t in surface_items if t.id not in already_revealed_ids]
     unrevealed_tacit = [t for t in tacit_items if t.id not in already_revealed_ids]
 
-    if not unrevealed_surface and not unrevealed_tacit:
+    # Tacit items only become candidates once a surface item in the same subtopic
+    # has already been revealed. The LLM can't match what it can't see.
+    revealed_subtopics = {
+        t.topic for t in surface_items
+        if t.id in already_revealed_ids and t.topic
+    }
+    eligible_tacit = [t for t in unrevealed_tacit if t.topic in revealed_subtopics]
+
+    if not unrevealed_surface and not eligible_tacit:
         return []
 
     surface_text = "\n".join(
@@ -291,7 +301,7 @@ def retrieve_relevant_knowledge(
     ) or "(none remaining)"
 
     tacit_text = "\n".join(
-        f'- id: "{t.id}", fact: "{t.content}"' for t in unrevealed_tacit
+        f'- id: "{t.id}", fact: "{t.content}"' for t in eligible_tacit
     ) or "(none remaining)"
 
     token = os.environ.get("DATABRICKS_TOKEN")

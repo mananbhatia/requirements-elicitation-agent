@@ -26,11 +26,13 @@ Returns simulated_alternatives — list of dicts:
 import re
 import json
 import warnings
-from langchain_openai import ChatOpenAI
+from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import HumanMessage, AIMessage
 
 from evaluation_state import EvaluationState
 from evaluator_core import MISTAKE_TYPES, format_transcript, evaluate_turn, _extract_content
+
+_MAX_ALT_ATTEMPTS = 3
 
 _ALT_PROMPT = """\
 You are helping a consultant improve their requirements interview technique.
@@ -50,20 +52,22 @@ You are helping a consultant improve their requirements interview technique.
 ## The 14 mistake types
 
 {mistake_types}
-
+{retry_note}
 ## Your task
 
-Write one improved QUESTION that the consultant could have asked instead.
-The alternative must always be a question — regardless of what the original turn was.
-The improved question must be grounded only in what has been discussed so far in the
-conversation above — do not introduce information that wasn't already on the table.
+Write one question that a skilled interviewer would ask at this point in the conversation.
+First, read the transcript carefully and identify what has already been established — do
+not ask about anything that has already been answered or covered. Then decide what is most
+valuable to explore next: prefer finding a better way to ask about the same topic as the
+original turn, and only shift to a different topic if the original topic is genuinely
+beyond what this client can answer at all.
 
-The alternative question MUST address the same specific topic or information need as the
-original turn. Identify what the consultant was trying to learn or accomplish, and generate
-a question that achieves that goal. Do not redirect to a different topic.
+Do not just fix the wording of the original question. Ask what a skilled interviewer
+would genuinely want to know at this point, given what has and has not been covered.
+Do not introduce topics that have not been hinted at or mentioned in the conversation.
 
-The alternative question you generate must itself be free of the 14 mistake types listed
-above. Review your generated question against the 14 mistake types before returning it.
+The question must be free of all 14 mistake types listed above. Review your question
+against each type before returning it.
 
 Return only the question text. No explanation, no preamble, no quotation marks.
 """
@@ -140,34 +144,24 @@ def build_alternative_simulator(conversation_graph):
     Returns the alternative_simulator node as a closure over the conversation graph.
     The conversation graph is used in Stage B to simulate client responses.
     """
-    from evaluator_core import _get_databricks_base_url, _get_databricks_token
-    llm = ChatOpenAI(
-        model="databricks-gpt-oss-120b",
-        base_url=_get_databricks_base_url(),
-        api_key=_get_databricks_token(),
-        temperature=0.3,
-        extra_body={"reasoning_effort": "high"},
-    )
+    llm = ChatAnthropic(model="claude-sonnet-4-6", temperature=0.3)
 
     def alternative_simulator(state: EvaluationState) -> dict:
         annotations = state.get("turn_annotations", [])
         messages = state["transcript"]
+        maturity = state.get("maturity", "")
+        briefing = state.get("briefing", "")
         results = []
 
         for ann in annotations:
             turn_type = ann.get("turn_type", "question")
 
             if turn_type == "question":
-                needs_alternative = (
-                    not ann.get("is_well_formed", True)
-                    or not ann.get("information_elicited", True)
-                )
-            elif turn_type == "solution_proposal":
-                needs_alternative = not ann.get("information_elicited", True)
+                needs_alternative = not ann.get("is_well_formed", True)
             elif turn_type == "unproductive_statement":
                 needs_alternative = True
             else:
-                # explanation, acknowledgment — no alternative needed
+                # solution_proposal, explanation, acknowledgment — no alternative needed
                 needs_alternative = False
 
             if not needs_alternative:
@@ -204,28 +198,64 @@ def build_alternative_simulator(conversation_graph):
                 mistake_summary = "\n".join(
                     f"- [{m['mistake_type']}] {m['explanation']}" for m in mistakes
                 )
-            elif turn_type == "solution_proposal":
-                mistake_summary = "The consultant proposed a solution but it did not surface new information from the client. Show what question they could have asked instead to learn more."
             elif turn_type == "unproductive_statement":
                 mistake_summary = "The consultant made a statement that did not advance discovery instead of asking a question. Show what question they could have asked instead."
             else:
                 mistake_summary = "The question was generally ineffective."
 
-            alt_prompt = _ALT_PROMPT.format(
-                prior_transcript=prior_transcript,
-                original_question=original_question,
-                mistake_summary=mistake_summary,
-                mistake_types=MISTAKE_TYPES,
-            )
+            mini_transcript_for_eval = format_transcript(prior_messages)
 
-            try:
-                with warnings.catch_warnings():
-                    warnings.filterwarnings("ignore", category=UserWarning, module="pydantic")
-                    alt_response = llm.invoke([HumanMessage(content=alt_prompt)])
-                alternative_question = _extract_content(alt_response).strip()
-                print(f"[SIM]   Alternative: {alternative_question!r}")
-            except Exception as e:
-                print(f"[SIM]   Failed to generate alternative for turn {turn_index}: {e}")
+            # Stage A (with retry): generate alternative, evaluate well-formedness before
+            # committing to the expensive Stage B simulation. Retry up to _MAX_ALT_ATTEMPTS
+            # times, passing the previous attempt's mistake back to the generator each time.
+            alternative_question = ""
+            retry_note = ""
+            for attempt in range(1, _MAX_ALT_ATTEMPTS + 1):
+                alt_prompt = _ALT_PROMPT.format(
+                    prior_transcript=prior_transcript,
+                    original_question=original_question,
+                    mistake_summary=mistake_summary,
+                    mistake_types=MISTAKE_TYPES,
+                    retry_note=retry_note,
+                )
+                try:
+                    with warnings.catch_warnings():
+                        warnings.filterwarnings("ignore", category=UserWarning, module="pydantic")
+                        alt_response = llm.invoke([HumanMessage(content=alt_prompt)])
+                    alternative_question = _extract_content(alt_response).strip()
+                    print(f"[SIM]   Alternative (attempt {attempt}): {alternative_question!r}")
+                except Exception as e:
+                    print(f"[SIM]   Failed to generate alternative for turn {turn_index} (attempt {attempt}): {e}")
+                    break
+
+                if not alternative_question:
+                    break
+
+                # Quick well-formedness check before running Stage B.
+                pre_eval_transcript = mini_transcript_for_eval + f"\nConsultant: {alternative_question}"
+                pre_annotation = evaluate_turn(
+                    alternative_question, pre_eval_transcript, turn_index,
+                    maturity_level=maturity,
+                    briefing=briefing,
+                )
+                if pre_annotation and pre_annotation.get("is_well_formed", True):
+                    print(f"[SIM]   Alternative passed pre-check on attempt {attempt}.")
+                    break
+                elif pre_annotation and attempt < _MAX_ALT_ATTEMPTS:
+                    pre_mistakes = pre_annotation.get("mistakes", [])
+                    mistake_desc = (
+                        f"[{pre_mistakes[0]['mistake_type']}] {pre_mistakes[0]['explanation']}"
+                        if pre_mistakes else "not well-formed"
+                    )
+                    retry_note = (
+                        f"\n## Previous attempt (rejected)\n"
+                        f"Your previous attempt was: \"{alternative_question}\"\n"
+                        f"It was rejected because: {mistake_desc}\n"
+                        f"Generate a different question that avoids this problem.\n"
+                    )
+                    print(f"[SIM]   Attempt {attempt} failed pre-check ({mistake_desc}), retrying.")
+
+            if not alternative_question:
                 continue
 
             # Stage B: simulate the client's response to the alternative question.
@@ -243,15 +273,10 @@ def build_alternative_simulator(conversation_graph):
                 print(f"[SIM]   Failed to simulate response for turn {turn_index}: {e}")
                 continue
 
-            # Stage C: evaluate the alternative question and generate improvement verdict.
-            # Build a mini-transcript: prior context + alternative Q + simulated response.
-            mini_transcript = format_transcript(prior_messages) + (
-                f"\nConsultant: {alternative_question}"
-                f"\nClient: {simulated_response}"
-            )
-            alt_annotation = evaluate_turn(alternative_question, mini_transcript, turn_index)
-            alt_is_well_formed = alt_annotation.get("is_well_formed", True) if alt_annotation else True
-            alt_information_elicited = alt_annotation.get("information_elicited", True) if alt_annotation else True
+            # Stage C: reuse the pre-check annotation for well-formedness (already evaluated).
+            # Compute gate-based information_elicited from the simulation state.
+            alt_information_elicited = len(sim_state.get("revealed_items", [])) > 0
+            alt_is_well_formed = pre_annotation.get("is_well_formed", True) if pre_annotation else True
             print(f"[SIM]   Alt well-formed: {alt_is_well_formed} | Alt info elicited: {alt_information_elicited}")
 
             verdict_prompt = _VERDICT_PROMPT.format(

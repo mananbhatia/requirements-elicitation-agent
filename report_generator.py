@@ -6,10 +6,10 @@ produces a structured JSON report stored in EvaluationState["report"].
 
 Report shape:
   {
-    "summary": "One sentence overall impression.",
-    "continue": [{"point": "...", "turns": [2, 3]}, ...],
-    "stop":     [{"point": "...", "turns": [5]}, ...],
-    "start":    [{"point": "...", "turns": [5]}, ...]
+    "summary": "2-3 sentence qualitative narrative of the interview.",
+    "continue": [{"point": "2-3 sentence technique observation", "turns": [2, 3]}, ...],
+    "stop":     [{"point": "2-3 sentence habit/pattern observation", "turns": [5]}, ...],
+    "start":    [{"point": "2-3 sentence gap grounded in transcript moment", "turns": [5]}, ...]
   }
 
 Statistics are computed in Python (_compute_stats) and passed as hard facts —
@@ -28,9 +28,10 @@ from evaluator_core import _get_databricks_base_url, _get_databricks_token, _ext
 
 _REPORT_PROMPT = """\
 You are giving structured feedback to a consultant after reviewing their requirements \
-discovery interview. Be direct and specific — write like a senior colleague.
+discovery interview. Write like a senior colleague who observed the session — direct, \
+specific, and honest.
 
-## Statistics (use these exact numbers — do not recalculate)
+## Statistics (do not restate these in the summary — they are shown separately)
 
 {stats_text}
 
@@ -52,48 +53,57 @@ discovery interview. Be direct and specific — write like a senior colleague.
 
 ## Your task
 
-Write structured feedback in three sections. Each section answers a fundamentally different \
+Write structured feedback in four sections. Each section answers a fundamentally different \
 question — they must not overlap.
 
-**CONTINUE — What specific skill did the consultant demonstrate?**
-Identify 1-2 specific TECHNIQUES the consultant used effectively. Not "asked good questions" — \
-that is obvious. What was the underlying skill? Did they build on the client's previous answer \
-to go deeper? Did they rephrase technical concepts in the client's terms? Did they use a solution \
-proposal to test an assumption? Name the technique, say briefly why it worked, cite 1-2 turns. \
-If only one genuine technique stands out, write one point.
+**SUMMARY — Qualitative narrative of the interview**
+Write 2-3 sentences giving an honest overall impression. What did the consultant do well \
+overall? Where did they lose momentum? What was the single biggest missed opportunity? \
+Do NOT restate the statistics — those are shown separately in the UI. Write like a senior \
+colleague giving their honest read after watching the session.
 
-**STOP — What specific habit hurt the consultant?**
-Identify 1-2 BEHAVIOR PATTERNS that caused problems. The evidence is in the alternatives: if the \
-alternative worked better, that proves the original approach failed. Name the habit, reference 1 \
-turn as the clearest example, briefly note what the alternative achieved instead. If only one \
-pattern recurred, write one point.
+**CONTINUE — What technique should the consultant keep using?**
+Identify 1-2 specific techniques the consultant used effectively across multiple turns. \
+For each point: name the technique, explain why it worked, and reference what information \
+it unlocked. "Asked good questions" is not a technique — what was the underlying skill? \
+Did they build on the client's previous answer to go deeper? Did they rephrase concepts in \
+the client's language to draw out concrete details? Each point should be 2-3 sentences. \
+The evidence base is turns where is_well_formed=true AND information_elicited=true. \
+If only one genuine technique stands out, write one point. If none stand out, write an empty list.
 
-**START — What did the consultant leave unexplored?**
-Identify 1-2 GAPS — things the consultant did NOT do. Focus on:
-- Subtopics from the coverage data that were never explored, naming the specific subtopics
-- Areas where the consultant touched a topic superficially but deeper issues existed
-This section is grounded in the coverage stats and missed subtopics provided above. Do not invent \
-abstract technique recommendations.
+**STOP — What recurring habit hurt the consultant?**
+Identify 1-2 behavior patterns that caused repeated problems. For each point: name the habit, \
+describe its cumulative impact across the interview, and reference what the simulated alternative \
+achieved instead — use the improvement verdicts directly. A single isolated mistake is not a \
+pattern — look for the same underlying problem appearing more than once. Each point should be \
+2-3 sentences. Prioritise turns where alt_information_elicited=true (the alternative unlocked \
+something the original didn't) — these are the clearest evidence that the habit had real cost. \
+If only one pattern recurred, write one point. If none recurred, write an empty list.
+
+**START — What should the consultant explore next time?**
+Identify 1-2 specific areas the consultant left unexplored. For each point: name the missed \
+subtopic or area, find a concrete moment in the transcript where the client said something that \
+hinted at it, and explain what the consultant could have asked and what it might have revealed. \
+Do not just list uncovered subtopic names — every point must be grounded in a specific moment \
+from the conversation. Each point should be 2-3 sentences. The evidence base is the coverage \
+data (missed subtopics) combined with the transcript.
 
 **CRITICAL — Non-redundancy check:**
-Before outputting, read all your points across Continue, Stop, and Start together. For each point, \
-ask: does any other point across any section say essentially the same thing, just phrased differently \
-or from the opposite angle? If yes, delete the weaker one. The total output should contain 3-6 points \
-where every single point tells the consultant something the other points do not. It is better to have \
-3 strong unique points than 6 where half are redundant. If a section has zero unique insights not \
-already covered by another section, output an empty list for that section.
+Before outputting, read all your points across all sections together. For each point, ask: \
+does any other point say essentially the same thing from a different angle? If yes, delete the \
+weaker one. It is better to have 3 strong unique points than 6 where half are redundant. If a \
+section has zero unique insights not already covered elsewhere, output an empty list for it.
 
 **Format rules:**
-- Each point is one sentence. Maximum 25 words per point (turn references do not count).
+- Each point is 2-3 sentences.
 - Turn references go in the "turns" array. Maximum 2 turn numbers per point.
 - Maximum 2 points per section. Minimum 0 — an empty list is valid.
-- The summary is 1-2 sentences stating turn counts, mistake counts, and subtopic coverage using \
-the exact numbers from the Statistics section.
+- The summary is plain prose, not a JSON array.
 - Output ONLY valid JSON. No markdown formatting, no code fences, no explanation before or after.
 
 **Example of expected output format (content is illustrative, not from this interview):**
 
-{{"summary": "Across 14 turns you asked 11 questions (8 well-formed, 3 with mistakes), elicited information in 9, and covered 8 of 12 subtopics.", "continue": [{{"point": "Built follow-up chains where each question narrowed based on the client's previous answer", "turns": [4, 5]}}, {{"point": "Rephrased technical proposals in the client's business language, drawing out practical concerns", "turns": [9]}}], "stop": [{{"point": "Used technical acronyms the client couldn't understand, stalling the conversation", "turns": [7]}}, {{"point": "Made reactive comments instead of asking questions, wasting discovery opportunities", "turns": [11]}}], "start": [{{"point": "Explore the 3 missed subtopics: storage configuration, compliance readiness, and workload placement", "turns": []}}, {{"point": "Probe deeper on identity management — only surface-level facts were uncovered despite multiple items existing", "turns": []}}]}}
+{{"summary": "The consultant built real momentum in the first half by following the client's thread and going deeper on access management, but lost it mid-interview by shifting to generic questions that didn't connect to what Danny had just shared. The biggest missed opportunity was compute governance — Danny mentioned rising cloud costs in passing but the consultant never picked it up.", "continue": [{{"point": "The consultant consistently built on the client's previous answer before moving to a new topic, which meant each question felt earned rather than scripted. On turn 4 this drew out that business users were accessing development with production data — a detail Danny hadn't volunteered and wouldn't have raised unprompted.", "turns": [4, 5]}}, {{"point": "When the client used vague language like 'not clean', the consultant asked what that looked like in practice rather than accepting it, which twice unlocked specific operational details about the storage setup.", "turns": [7]}}], "stop": [{{"point": "The consultant repeatedly named a technology and asked if the client had it, rather than asking about the underlying problem first — this pattern appeared three times and each time Danny couldn't engage because he didn't know the term. The alternative in turn 9 reframed the question around the pain and immediately drew out details about the storage mess.", "turns": [6, 9]}}], "start": [{{"point": "Network isolation was never explored despite Danny mentioning early on that the platform is Azure-based. When Danny described data ingestion on turn 3 as 'it just comes in', a question about how data reaches the platform could have revealed that ADF is running over the public internet with no private link.", "turns": [3]}}]}}
 
 Now write the actual feedback for this interview:
 
@@ -369,7 +379,7 @@ def report_generator(state: EvaluationState) -> dict:
         base_url=_get_databricks_base_url(),
         api_key=_get_databricks_token(),
         temperature=0.3,
-        extra_body={"reasoning_effort": "high"},
+        extra_body={"reasoning_effort": "medium"},
     )
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", category=UserWarning, module="pydantic")

@@ -65,19 +65,21 @@ Runs after the interview ends. Separate graph from the conversation graph.
 Flow: `turn_evaluator → alternative_simulator → report_generator`
 
 **Node 1 — turn_evaluator**
-Makes one LLM call per consultant turn using the full conversation transcript as context.
-Outputs per turn:
-- `mistakes`: list of flagged mistake types with explanations (from docs/evaluation/mistake_types.md)
-- `is_well_formed`: true if no mistake types apply
-- `information_elicited`: true if the client's response contained substantive new information
+`classify_turn()` receives the full transcript. `evaluate_turn()` receives a **truncated transcript**
+— only up to and including the consultant's question, hiding the client's response — to prevent
+outcome bias. `evaluate_turn()` also receives `maturity_level` and `briefing` from the scenario;
+the prompt notes maturity is relevant to three specific mistake types: "Use jargon", "Ask a technical
+question", and "Ask a question inappropriate to user's profile".
 
-Both fields are assessed independently — a well-formed question can fail to elicit information
-if the client doesn't have the answer, and vice versa.
+Outputs per turn:
+- `mistakes`: list containing **at most one** mistake — the single most fundamental root cause. If multiple mistake types seem to apply, they are treated as symptoms of the same underlying problem; only the one that best explains WHY the question failed is returned.
+- `is_well_formed`: true if no mistake types apply
+- `information_elicited`: gate-based — true iff `unlocked_at_turn == turn_index` for any revealed item
 
 **Node 2 — alternative_simulator**
 For every turn where `is_well_formed` is false OR `information_elicited` is false:
 
-- *Stage A*: generates an improved question (Claude Sonnet 4.6, temp 0.3) using only the prior
+- *Stage A*: generates an improved question (GPT-OSS-120B, temp 0.3, reasoning_effort=high) using only the prior
   transcript — the generator never sees the client's response to the original question.
   Constraints: same topic as original, free of all 14 mistake types.
 - *Stage B*: simulates the client's response by invoking the conversation graph with the
@@ -93,13 +95,16 @@ alt_is_well_formed, alt_information_elicited, improvement_verdict`
 
 **Node 3 — report_generator**
 One LLM call (Databricks GPT-OSS-120B, temp 0.3, reasoning_effort=high) that receives the full transcript,
-all annotations, all alternatives, and pre-computed topic coverage stats. Writes the feedback report in
-SUMMARY / COVERAGE / CONTINUE / STOP / START format. Statistics (turn counts, mistake frequencies) and
-coverage stats (topics/subtopics covered vs total, per-topic breakdown) are computed in Python before
-the LLM call — the LLM is told not to recalculate.
+all annotations, all alternatives, and pre-computed topic coverage stats. Returns a structured JSON report:
+`{summary, continue, stop, start}`. Statistics and coverage stats are computed in Python before the LLM
+call — the LLM is told not to recalculate.
 
-The prompt prioritises turns where `alt_information_elicited` flipped from false to true
-as primary examples in Stop/Start — these are the gold examples with proven improvement.
+Report section definitions:
+- **CONTINUE**: 0–2 specific *techniques* the consultant used effectively (named skill, why it worked, turn refs)
+- **STOP**: 0–2 *behavior patterns* that caused problems, evidenced by the alternative working better
+- **START**: 0–2 *gaps* grounded in missed subtopics from coverage data — not abstract technique advice
+- Non-redundancy self-check: the LLM is instructed to verify no point across any section says the same thing from a different angle before outputting. Empty list is valid for any section.
+- 25-word max per point; max 2 turn refs per point.
 
 Coverage computation (`_compute_coverage()`) runs before the LLM call and its result is stored in
 `EvaluationState.topic_coverage` so Streamlit can render the coverage UI independently of the report.
@@ -185,7 +190,7 @@ Three dimensions, each set independently in the `Maturity Level` section of the 
 - Alternative generation with topic preservation and mistake-avoidance constraints
 - Stage C evaluation of alternatives using same criteria as original turns
 - One-sentence improvement verdict comparing both question/response pairs
-- Feedback report with SUMMARY / CONTINUE / STOP / START using gold examples as evidence
+- Structured JSON feedback report `{summary, continue, stop, start}` with non-redundancy self-check; each section answers a distinct question (technique / habit / gap)
 
 ### Topic coverage (complete)
 - Computed from `revealed_items` topic codes vs. all scenario items' topic codes
@@ -193,7 +198,7 @@ Three dimensions, each set independently in the `Maturity Level` section of the 
 - A top-level topic is fully/partially/not covered based on its subtopics
 - Stats pre-computed in Python (`_compute_coverage()` in `report_generator.py`)
 - Passed to report LLM as hard facts; LLM writes the COVERAGE section of the report
-- Also rendered in Streamlit as an expandable per-topic summary before the eval tabs
+- Also rendered in Streamlit as a 2-column grid: bold topic name, colored fraction (green/orange/red), subtopics as inline dot-separated caption in taxonomy order
 
 ### Not yet built
 - **Interaction strategy**: did the consultant ask questions only, or also propose solutions?
@@ -204,15 +209,15 @@ After each evaluation, `session_logger.py` saves a JSON file to `logs/`:
 `logs/session_YYYY-MM-DD_HH-MM-SS.json`
 
 Contains: timestamp, scenario title, transcript (role+content), revealed items (id/content/layer/topic),
-turn_annotations, simulated_alternatives (including all Stage C fields), report string, summary_stats.
-Note: `topic_coverage` is stored in `EvaluationState` but not currently persisted to the session log.
+turn_annotations, simulated_alternatives (including all Stage C fields), report dict `{summary, continue, stop, start}`, summary_stats.
+Note: `topic_coverage` and `stats` are stored in `EvaluationState` but not currently persisted to the session log.
 
 `logs/` is gitignored.
 
 ## Tech Stack
 - Python, LangChain, LangGraph
-- Anthropic Claude Sonnet 4.6 for client LLM (temp 0.7) and alternative question generation (temp 0.3)
-- Databricks GPT-OSS-120B (OpenAI-compatible endpoint) for retrieval (medium), turn classification (medium), information-elicited checks (medium), turn evaluation (high), and report generation (high)
+- Anthropic Claude Sonnet 4.6 for: synthetic client (temp 0.7), turn evaluation / evaluate_turn (temp 0.0), alternative question generation (temp 0.3)
+- Databricks GPT-OSS-120B (OpenAI-compatible endpoint) for: retrieval gate (medium), turn classification / classify_turn (low), report generation (medium)
 - python-dotenv for API key management (`DATABRICKS_TOKEN`, `DATABRICKS_BASE_URL`)
 - Streamlit for UI
 
@@ -220,8 +225,11 @@ Note: `topic_coverage` is stored in `EvaluationState` but not currently persiste
 - Sidebar shows consultant briefing (parsed from `Consultant Briefing` section) and topic taxonomy
   (`Topics` section) with parent topics bold and subtopics listed as `·`-separated captions
 - Evaluation progress bar: Step 1 (turn evaluation) advances per turn (0–33%), Steps 2–3 are single jumps
-- Feedback Report tab includes a download button that saves the report as a dated markdown file
-- Progress bar appears below the conversation transcript, not above it
+- Evaluation display: single page, three stacked sections:
+  1. Stats bar (4 metrics) + topic coverage grid (2-col, bold topic + colored fraction + subtopic caption line)
+  2. Summary sentence + Continue / Stop / Start in three columns
+  3. Turn-by-Turn Detail (outer expander, collapsed by default) — each turn is its own nested expander showing badges, You/Danny exchange, mistake tag + explanation, and Original vs Alternative side-by-side HTML table where applicable
+- Download session log button below the turn-by-turn section
 
 ## Commands
 - `python main.py` — run terminal interview with default scenario
@@ -243,7 +251,7 @@ agent_v2/
 ├── evaluation_state.py      # EvaluationState TypedDict
 ├── evaluator_core.py        # shared MISTAKE_TYPES, format_transcript, evaluate_turn (GPT-OSS high)
 ├── turn_evaluator.py        # node 1: per-turn mistake classification
-├── alternative_simulator.py # node 2: alternative generation (Sonnet) + Stage C comparison
+├── alternative_simulator.py # node 2: alternative generation (GPT-OSS high) + Stage C comparison
 ├── report_generator.py      # node 3: feedback report synthesis (GPT-OSS high)
 ├── session_logger.py        # saves session JSON to logs/ (includes topic field on revealed items)
 ├── logs/                    # session logs (gitignored)

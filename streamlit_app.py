@@ -175,7 +175,7 @@ def _render_conversation():
 def _run_evaluation():
     from alternative_simulator import build_alternative_simulator
     from report_generator import report_generator
-    from evaluator_core import format_transcript, evaluate_turn_routed
+    from evaluator_core import format_transcript, format_transcript_up_to, evaluate_turn_routed
 
     scenario = get_scenario(st.session_state.scenario_path)
     conv_graph = get_conversation_graph(st.session_state.scenario_path)
@@ -196,6 +196,8 @@ def _run_evaluation():
         "revealed_items": st.session_state.revealed_items,
         "topic_taxonomy": scenario.topic_taxonomy,
         "scenario_items": all_items,
+        "briefing": scenario.briefing,
+        "maturity": scenario.maturity,
         "turn_annotations": [],
         "simulated_alternatives": [],
         "topic_coverage": {},
@@ -220,9 +222,21 @@ def _run_evaluation():
             continue
 
         turn_index += 1
-        annotation = evaluate_turn_routed(content, transcript_text, turn_index)
+        truncated_text = format_transcript_up_to(messages, turn_index)
+        annotation = evaluate_turn_routed(
+            content, transcript_text, turn_index,
+            maturity_level=scenario.maturity,
+            briefing=scenario.briefing,
+            truncated_transcript_text=truncated_text,
+        )
         if annotation is not None:
             annotation["question"] = content
+            turn_type = annotation.get("turn_type", "question")
+            if turn_type not in ("explanation", "acknowledgment"):
+                annotation["information_elicited"] = any(
+                    item.get("unlocked_at_turn") == turn_index
+                    for item in st.session_state.revealed_items
+                )
             annotations.append(annotation)
 
         pct = int((turn_index / n_turns) * 33) if n_turns else 33

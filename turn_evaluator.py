@@ -27,11 +27,14 @@ Annotation dict shape:
 from langchain_core.messages import HumanMessage as LCHumanMessage
 
 from evaluation_state import EvaluationState
-from evaluator_core import format_transcript, evaluate_turn_routed
+from evaluator_core import format_transcript, format_transcript_up_to, evaluate_turn_routed
 
 
 def turn_evaluator(state: EvaluationState) -> dict:
     messages = state["transcript"]
+    revealed_items = state.get("revealed_items", [])
+    maturity = state.get("maturity", "")
+    briefing = state.get("briefing", "")
     transcript_text = format_transcript(messages)
     annotations = []
     turn_index = 0
@@ -52,16 +55,32 @@ def turn_evaluator(state: EvaluationState) -> dict:
         turn_index += 1
         print(f"[EVAL] Turn {turn_index}: {content!r}")
 
-        annotation = evaluate_turn_routed(content, transcript_text, turn_index)
+        truncated_text = format_transcript_up_to(messages, turn_index)
+        annotation = evaluate_turn_routed(
+            content, transcript_text, turn_index,
+            maturity_level=maturity,
+            briefing=briefing,
+            truncated_transcript_text=truncated_text,
+        )
         if annotation is None:
             print(f"[EVAL]   Classification or evaluation failed, skipping.")
             continue
 
         annotation["question"] = content
+
+        # Gate-based information_elicited: true iff this turn unlocked at least one item.
         turn_type = annotation.get("turn_type", "question")
-        mistakes = annotation.get("mistakes", [])
+        if turn_type not in ("explanation", "acknowledgment"):
+            info_elicited = any(
+                item.get("unlocked_at_turn") == turn_index
+                for item in revealed_items
+            )
+            annotation["information_elicited"] = info_elicited
+        # explanation/acknowledgment stay None (already set by evaluate_turn_routed)
+
         wf = annotation.get("is_well_formed")
         ie = annotation.get("information_elicited")
+        mistakes = annotation.get("mistakes", [])
 
         print(f"[EVAL]   Type: {turn_type}")
         if mistakes:

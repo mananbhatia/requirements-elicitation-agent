@@ -5,9 +5,8 @@ Used by turn_evaluator.py (per-turn evaluation) and alternative_simulator.py
 (Stage C evaluation of alternative questions).
 
 Turn flow:
-  classify_turn()          — GPT-OSS medium; determines turn type before mistake evaluation
-  evaluate_turn()          — GPT-OSS high; classifies a question against 14 mistake types
-  check_information_elicited() — GPT-OSS medium; used for non-question turns
+  classify_turn()          — GPT-OSS low; determines turn type before mistake evaluation
+  evaluate_turn()          — Claude Sonnet 4.6; classifies a question against 14 mistake types
   evaluate_turn_routed()   — orchestrates classification + routing; call this from
                               turn_evaluator.py and streamlit_app.py
 """
@@ -18,6 +17,7 @@ import json
 import warnings
 from pathlib import Path
 from langchain_openai import ChatOpenAI
+from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import HumanMessage, AIMessage
 
 def _get_databricks_token() -> str:
@@ -96,8 +96,7 @@ Consultant's message: "{message}"
     "got it", "makes sense", "okay", "sure", "okay let me ask about something else."
 
 (e) unproductive_statement — A statement that does not advance discovery and is not a
-    solution proposal or explanation. Examples: "it means you are screwed", "pretty bad.
-    anyone can hack you", "that's not good." A missed opportunity.
+    solution proposal or explanation. Examples: "pretty bad", "that's not good." A missed opportunity.
 
 ## Important
 
@@ -108,27 +107,6 @@ Classify based on the PRIMARY purpose of the turn:
 
 Output ONLY a JSON object, no explanation, no reasoning, no other text:
 {{"turn_type": "question" | "solution_proposal" | "explanation" | "acknowledgment" | "unproductive_statement", "reasoning": "<one sentence explaining the classification>"}}
-"""
-
-_INFO_ELICITED_PROMPT = """\
-You are reviewing a transcript of a consultant interviewing a client.
-
-## Full conversation transcript
-
-{transcript}
-
-## Your task
-
-Look at the client's response immediately after the consultant's turn {turn_index}.
-
-Did the client's response contain substantive new information about their situation?
-Set information_elicited to true if the client provided facts, details, named problems,
-concrete descriptions, or any actionable content about their specific situation.
-Set it to false if the client gave a non-answer, a vague reaction, deflected, or
-provided nothing of substance.
-
-Output ONLY a JSON object, no explanation, no other text:
-{{"information_elicited": true or false}}
 """
 
 # ---------------------------------------------------------------------------
@@ -142,7 +120,20 @@ You are evaluating a consultant's question during a requirements interview with 
 
 {mistake_types}
 
-## Full conversation transcript
+## Engagement context
+
+{briefing}
+
+## Client's maturity level
+
+The following instructions were given to the synthetic client to define how it behaves.
+Use this to assess whether the consultant's language and question complexity are appropriate
+for this client. It is directly relevant to three mistake types: "Use jargon",
+"Ask a technical question", and "Ask a question inappropriate to user's profile".
+
+{maturity_level}
+
+## Conversation transcript (up to and including the question being evaluated)
 
 {transcript}
 
@@ -157,19 +148,8 @@ Classify this specific consultant turn against the 14 mistake types above.
 Consider the full conversation context — a question that is vague in isolation
 may be appropriate given what was already discussed, and vice versa.
 
-Assess two things independently for this turn:
-
-1. **is_well_formed** — Is the question free of the 14 mistake types? Set to true if no mistake
-   types apply, false if any mistakes were found. This is about the question itself, not the outcome.
-
-2. **information_elicited** — Did the client's response (visible in the transcript immediately
-   after this turn) contain substantive new information? Set to true if the client provided facts,
-   details, named problems, concrete descriptions, or any actionable content about their situation.
-   Set to false if the client deferred to a colleague, asked for clarification, deflected, gave a
-   non-answer, or provided nothing of substance. This is about the outcome, not the question quality.
-   These two fields are independent — a well-formed question can fail to elicit information if the
-   client doesn't have the answer, and a poorly-formed question can still elicit information if the
-   client understood despite the issue.
+**is_well_formed** — Is the question free of the 14 mistake types? Set to true if no mistake
+types apply, false if any mistakes were found. This is about the question itself, not the outcome.
 
 Important:
 - Many turns will have zero mistakes. That is fine and expected. Do not force-find problems.
@@ -186,8 +166,7 @@ Output ONLY a JSON object, no explanation, no reasoning, no other text:
       "explanation": "<one sentence: why this mistake applies to this specific question>"
     }}
   ],
-  "is_well_formed": true or false,
-  "information_elicited": true or false
+  "is_well_formed": true or false
 }}
 
 "mistakes" contains at most one item. If there are no mistakes, return "mistakes": [].
@@ -209,10 +188,38 @@ def format_transcript(messages: list) -> str:
     return "\n".join(lines)
 
 
+def format_transcript_up_to(messages: list, turn_index: int) -> str:
+    """Return transcript text up to and including the consultant's nth turn.
+
+    The client's response to that turn is NOT included — this prevents the
+    evaluator from seeing the outcome when judging question quality.
+    Hidden opening prompts ([Start of interview...]) are skipped.
+    """
+    lines = []
+    consultant_count = 0
+    for m in messages:
+        is_human = isinstance(m, HumanMessage) or (
+            isinstance(m, dict) and m.get("type") == "human"
+        )
+        if is_human:
+            content = m.content if hasattr(m, "content") else m.get("content", "")
+            if content.startswith("[Start of interview"):
+                continue
+            consultant_count += 1
+            lines.append(f"Consultant: {content}")
+            if consultant_count == turn_index:
+                break  # stop here — exclude the client's response to this turn
+        else:
+            if consultant_count < turn_index:
+                content = m.content if hasattr(m, "content") else m.get("content", "")
+                lines.append(f"Client: {content}")
+    return "\n".join(lines)
+
+
 def classify_turn(message: str, transcript_text: str, turn_index: int) -> dict | None:
     """
     Classify a consultant turn into one of five types before mistake evaluation.
-    Uses GPT-OSS-120B medium reasoning.
+    Uses GPT-OSS-120B low reasoning — simple routing task, low latency priority.
     Returns {"turn_type": str, "reasoning": str} or None on failure.
     """
     llm = ChatOpenAI(
@@ -220,7 +227,7 @@ def classify_turn(message: str, transcript_text: str, turn_index: int) -> dict |
         base_url=_get_databricks_base_url(),
         api_key=_get_databricks_token(),
         temperature=0.0,
-        extra_body={"reasoning_effort": "medium"},
+        extra_body={"reasoning_effort": "low"},
     )
     prompt = _CLASSIFY_PROMPT.format(
         transcript=transcript_text,
@@ -237,49 +244,19 @@ def classify_turn(message: str, transcript_text: str, turn_index: int) -> dict |
         return None
 
 
-def check_information_elicited(transcript_text: str, turn_index: int) -> bool:
-    """
-    Check whether the client's response to a given turn contained substantive information.
-    Used for non-question turns (solution_proposal) where evaluate_turn is not called.
-    Uses GPT-OSS-120B medium reasoning.
-    """
-    llm = ChatOpenAI(
-        model="databricks-gpt-oss-120b",
-        base_url=_get_databricks_base_url(),
-        api_key=_get_databricks_token(),
-        temperature=0.0,
-        extra_body={"reasoning_effort": "medium"},
-    )
-    prompt = _INFO_ELICITED_PROMPT.format(
-        transcript=transcript_text,
-        turn_index=turn_index,
-    )
-    try:
-        with warnings.catch_warnings():
-            warnings.filterwarnings("ignore", category=UserWarning, module="pydantic")
-            response = llm.invoke([HumanMessage(content=prompt)])
-        parsed = _parse_json_response(_extract_content(response))
-        return bool(parsed.get("information_elicited", False))
-    except Exception as e:
-        print(f"[CLASSIFY] Failed to check info elicited for turn {turn_index}: {e}")
-        return False
-
-
-def evaluate_turn(question: str, transcript_text: str, turn_index: int) -> dict | None:
+def evaluate_turn(question: str, transcript_text: str, turn_index: int, maturity_level: str = "", briefing: str = "") -> dict | None:
     """
     Evaluate a consultant QUESTION against the 14 mistake types.
     Only call this for turns already classified as "question".
+    transcript_text should contain only the transcript up to and including this question
+    — the client's response is excluded to prevent outcome bias.
     Returns the parsed annotation dict, or None on failure.
     """
-    llm = ChatOpenAI(
-        model="databricks-gpt-oss-120b",
-        base_url=_get_databricks_base_url(),
-        api_key=_get_databricks_token(),
-        temperature=0.0,
-        extra_body={"reasoning_effort": "high"},
-    )
+    llm = ChatAnthropic(model="claude-sonnet-4-6", temperature=0.0)
     prompt = EVAL_PROMPT.format(
         mistake_types=MISTAKE_TYPES,
+        briefing=briefing or "(not specified)",
+        maturity_level=maturity_level or "(not specified)",
         transcript=transcript_text,
         turn_index=turn_index,
         question=question,
@@ -295,39 +272,53 @@ def evaluate_turn(question: str, transcript_text: str, turn_index: int) -> dict 
         return None
 
 
-def evaluate_turn_routed(content: str, transcript_text: str, turn_index: int) -> dict | None:
+def evaluate_turn_routed(
+    content: str,
+    transcript_text: str,
+    turn_index: int,
+    maturity_level: str = "",
+    briefing: str = "",
+    truncated_transcript_text: str = "",
+) -> dict | None:
     """
     Classify a consultant turn and evaluate it according to its type.
 
+    classify_turn receives the full transcript (no outcome bias risk for type classification).
+    evaluate_turn receives truncated_transcript_text (up to and including the question, hiding
+    the client's response) to prevent outcome bias. Falls back to transcript_text if not provided.
+
     Routes:
-      question             → evaluate_turn() against 14 mistake types
-      solution_proposal    → check_information_elicited() only; is_well_formed=None
-      explanation          → skip evaluation; is_well_formed=None, info_elicited=None
-      acknowledgment       → skip evaluation; is_well_formed=None, info_elicited=None
-      unproductive_statement → is_well_formed=False, info_elicited=False; mistake flagged
+      question             → evaluate_turn() against 14 mistake types; is_well_formed set by LLM
+      solution_proposal    → is_well_formed=None; information_elicited set by caller (gate-based)
+      explanation          → skipped; is_well_formed=None, information_elicited=None
+      acknowledgment       → skipped; is_well_formed=None, information_elicited=None
+      unproductive_statement → is_well_formed=False; information_elicited set by caller (gate-based)
+
+    information_elicited is always None here — callers (turn_evaluator, streamlit_app) override
+    it with the gate-based value derived from revealed_items[unlocked_at_turn == turn_index].
 
     Returns an annotation dict with turn_type set, or None on classification failure.
-    Called by both turn_evaluator.py (LangGraph node) and streamlit_app.py (per-turn loop).
     """
     classification = classify_turn(content, transcript_text, turn_index)
     turn_type = classification.get("turn_type", "question") if classification else "question"
     reasoning = classification.get("reasoning", "") if classification else ""
 
     if turn_type == "question":
-        annotation = evaluate_turn(content, transcript_text, turn_index)
+        eval_transcript = truncated_transcript_text or transcript_text
+        annotation = evaluate_turn(content, eval_transcript, turn_index, maturity_level=maturity_level, briefing=briefing)
         if annotation is None:
             return None
         annotation["turn_type"] = "question"
+        annotation["information_elicited"] = None  # overridden by caller
         return annotation
 
     if turn_type == "solution_proposal":
-        info_elicited = check_information_elicited(transcript_text, turn_index)
         return {
             "turn_index": turn_index,
             "turn_type": "solution_proposal",
             "mistakes": [],
             "is_well_formed": None,
-            "information_elicited": info_elicited,
+            "information_elicited": None,  # overridden by caller
         }
 
     if turn_type == "unproductive_statement":
@@ -336,7 +327,7 @@ def evaluate_turn_routed(content: str, transcript_text: str, turn_index: int) ->
             "turn_type": "unproductive_statement",
             "mistakes": [{"mistake_type": "Unproductive statement", "explanation": reasoning}],
             "is_well_formed": False,
-            "information_elicited": False,
+            "information_elicited": None,  # overridden by caller
         }
 
     # explanation or acknowledgment — skip evaluation entirely
