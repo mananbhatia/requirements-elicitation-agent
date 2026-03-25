@@ -55,19 +55,15 @@ You are helping a consultant improve their requirements interview technique.
 {retry_note}
 ## Your task
 
-Write one question that a skilled interviewer would ask at this point in the conversation.
-First, read the transcript carefully and identify what has already been established — do
-not ask about anything that has already been answered or covered. Then decide what is most
-valuable to explore next: prefer finding a better way to ask about the same topic as the
-original turn, and only shift to a different topic if the original topic is genuinely
-beyond what this client can answer at all.
+Rewrite the consultant's question to fix the specific mistake identified above, while
+preserving what they were trying to ask. The goal is the best version of this question
+for this client — not a different question.
 
-Do not just fix the wording of the original question. Ask what a skilled interviewer
-would genuinely want to know at this point, given what has and has not been covered.
-Do not introduce topics that have not been hinted at or mentioned in the conversation.
+To do that well: read the transcript and infer how this client thinks and speaks. Use
+their vocabulary. Avoid terms they have asked to have explained. Pitch the question at
+the level of self-awareness they have shown.
 
-The question must be free of all 14 mistake types listed above. Review your question
-against each type before returning it.
+The question must be free of all 14 mistake types listed above.
 
 Return only the question text. No explanation, no preamble, no quotation marks.
 """
@@ -149,6 +145,7 @@ def build_alternative_simulator(conversation_graph):
     def alternative_simulator(state: EvaluationState) -> dict:
         annotations = state.get("turn_annotations", [])
         messages = state["transcript"]
+        revealed_items = state.get("revealed_items", [])
         maturity = state.get("maturity", "")
         briefing = state.get("briefing", "")
         results = []
@@ -259,13 +256,18 @@ def build_alternative_simulator(conversation_graph):
                 continue
 
             # Stage B: simulate the client's response to the alternative question.
-            # Use prior_messages + the alternative question. Empty revealed_items —
-            # we're not tracking item-level unlocking in simulation.
+            # Use prior_messages + the alternative question. Pass items already revealed
+            # before this turn so Danny has the facts he's already shared available —
+            # prevents fabrication from character_text inference.
+            prior_revealed = [
+                item for item in revealed_items
+                if item.get("unlocked_at_turn", 0) < turn_index
+            ]
             sim_messages = list(prior_messages) + [HumanMessage(content=alternative_question)]
             try:
                 sim_state = conversation_graph.invoke({
                     "messages": sim_messages,
-                    "revealed_items": [],
+                    "revealed_items": prior_revealed,
                 })
                 simulated_response = sim_state["messages"][-1].content
                 print(f"[SIM]   Simulated response: {simulated_response!r}")
@@ -274,8 +276,19 @@ def build_alternative_simulator(conversation_graph):
                 continue
 
             # Stage C: reuse the pre-check annotation for well-formedness (already evaluated).
-            # Compute gate-based information_elicited from the simulation state.
-            alt_information_elicited = len(sim_state.get("revealed_items", [])) > 0
+            # Compute gate-based information_elicited: items the alternative uniquely unlocked
+            # that the original question at this turn also didn't get.
+            # Exclude prior_revealed (already known before this turn) AND items the original
+            # question itself unlocked at turn_index — otherwise original-turn items leak in.
+            original_revealed_through_turn = {
+                item["id"] for item in revealed_items
+                if item.get("unlocked_at_turn", 0) <= turn_index
+            }
+            newly_revealed_in_sim = [
+                item for item in sim_state.get("revealed_items", [])
+                if item["id"] not in original_revealed_through_turn
+            ]
+            alt_information_elicited = len(newly_revealed_in_sim) > 0
             alt_is_well_formed = pre_annotation.get("is_well_formed", True) if pre_annotation else True
             print(f"[SIM]   Alt well-formed: {alt_is_well_formed} | Alt info elicited: {alt_information_elicited}")
 
@@ -301,6 +314,7 @@ def build_alternative_simulator(conversation_graph):
                 "original_response": original_response,
                 "alternative_question": alternative_question,
                 "simulated_response": simulated_response,
+                "alt_revealed_items": newly_revealed_in_sim,
                 "alt_is_well_formed": alt_is_well_formed,
                 "alt_information_elicited": alt_information_elicited,
                 "improvement_verdict": improvement_verdict,

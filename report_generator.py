@@ -379,7 +379,7 @@ def report_generator(state: EvaluationState) -> dict:
         base_url=_get_databricks_base_url(),
         api_key=_get_databricks_token(),
         temperature=0.3,
-        extra_body={"reasoning_effort": "medium"},
+        extra_body={"reasoning_effort": "high"},
     )
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", category=UserWarning, module="pydantic")

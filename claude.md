@@ -77,24 +77,33 @@ Outputs per turn:
 - `information_elicited`: gate-based — true iff `unlocked_at_turn == turn_index` for any revealed item
 
 **Node 2 — alternative_simulator**
-For every turn where `is_well_formed` is false OR `information_elicited` is false:
+For every turn where `is_well_formed` is false (questions and unproductive_statements):
 
-- *Stage A*: generates an improved question (GPT-OSS-120B, temp 0.3, reasoning_effort=high) using only the prior
+- *Stage A*: generates an improved question (Claude Sonnet 4.6, temp 0.3) using only the prior
   transcript — the generator never sees the client's response to the original question.
-  Constraints: same topic as original, free of all 14 mistake types.
+  Prompt instructs: prefer a better version of the same question; only shift topic if the original
+  topic is completely exhausted AND the client offered a thread in their responses; do not use
+  company background context (org structure, geography) as basis for a topic shift.
+  Retry loop: up to `_MAX_ALT_ATTEMPTS=3`. Each attempt is pre-checked with `evaluate_turn()`;
+  if it fails, the mistake is fed back as a `retry_note` for the next attempt.
 - *Stage B*: simulates the client's response by invoking the conversation graph with the
-  alternative question in place of the original.
-- *Stage C*: evaluates the alternative using the shared `evaluate_turn()` from `evaluator_core.py`
-  (same prompt/logic as Node 1), producing `alt_is_well_formed` and `alt_information_elicited`.
-  Then makes a separate verdict call that compares both question/response pairs and generates
-  a one-sentence `improvement_verdict`.
+  alternative question in place of the original. Seeded with `prior_revealed` — items unlocked
+  at turns 1 through N-1 — so Danny has the facts he's already shared available in context.
+  Original-turn items (unlocked at turn N) are excluded; the alternative question must earn them
+  on its own through retrieval.
+- *Stage C*: reuses the Stage A pre-check annotation for `alt_is_well_formed` (no extra LLM call).
+  `alt_revealed_items` = items uniquely unlocked in simulation that were not in the original
+  conversation through turn N (excludes both prior_revealed and items the original question got).
+  `alt_information_elicited` = true iff `alt_revealed_items` is non-empty.
+  Then makes a separate verdict call (Claude Sonnet 4.6) that compares both question/response
+  pairs and generates a one-sentence `improvement_verdict`.
 
 Result dict per alternative:
 `turn_index, original_question, original_response, alternative_question, simulated_response,
-alt_is_well_formed, alt_information_elicited, improvement_verdict`
+alt_revealed_items, alt_is_well_formed, alt_information_elicited, improvement_verdict`
 
 **Node 3 — report_generator**
-One LLM call (Databricks GPT-OSS-120B, temp 0.3, reasoning_effort=high) that receives the full transcript,
+One LLM call (Claude Sonnet 4.6, temp 0.3) that receives the full transcript,
 all annotations, all alternatives, and pre-computed topic coverage stats. Returns a structured JSON report:
 `{summary, continue, stop, start}`. Statistics and coverage stats are computed in Python before the LLM
 call — the LLM is told not to recalculate.
@@ -104,7 +113,7 @@ Report section definitions:
 - **STOP**: 0–2 *behavior patterns* that caused problems, evidenced by the alternative working better
 - **START**: 0–2 *gaps* grounded in missed subtopics from coverage data — not abstract technique advice
 - Non-redundancy self-check: the LLM is instructed to verify no point across any section says the same thing from a different angle before outputting. Empty list is valid for any section.
-- 25-word max per point; max 2 turn refs per point.
+- Max 2 turn refs per point. No word cap — each point is 2–3 sentences.
 
 Coverage computation (`_compute_coverage()`) runs before the LLM call and its result is stored in
 `EvaluationState.topic_coverage` so Streamlit can render the coverage UI independently of the report.
@@ -208,8 +217,8 @@ Three dimensions, each set independently in the `Maturity Level` section of the 
 After each evaluation, `session_logger.py` saves a JSON file to `logs/`:
 `logs/session_YYYY-MM-DD_HH-MM-SS.json`
 
-Contains: timestamp, scenario title, transcript (role+content), revealed items (id/content/layer/topic),
-turn_annotations, simulated_alternatives (including all Stage C fields), report dict `{summary, continue, stop, start}`, summary_stats.
+Contains: timestamp, scenario title, transcript (role+content), revealed items (id/content/layer/topic/unlocked_at_turn),
+turn_annotations, simulated_alternatives (including `alt_revealed_items` and all Stage C fields), report dict `{summary, continue, stop, start}`, summary_stats.
 Note: `topic_coverage` and `stats` are stored in `EvaluationState` but not currently persisted to the session log.
 
 `logs/` is gitignored.
@@ -249,9 +258,9 @@ agent_v2/
 ├── knowledge.py             # scenario parser (briefing, topic_taxonomy, topic tags), retrieval LLM (GPT-OSS)
 ├── state.py                 # ConversationState TypedDict, custom reducers
 ├── evaluation_state.py      # EvaluationState TypedDict
-├── evaluator_core.py        # shared MISTAKE_TYPES, format_transcript, evaluate_turn (GPT-OSS high)
+├── evaluator_core.py        # shared MISTAKE_TYPES, format_transcript, evaluate_turn (Sonnet 4.6)
 ├── turn_evaluator.py        # node 1: per-turn mistake classification
-├── alternative_simulator.py # node 2: alternative generation (GPT-OSS high) + Stage C comparison
+├── alternative_simulator.py # node 2: alternative generation (Sonnet 4.6) + Stage C comparison
 ├── report_generator.py      # node 3: feedback report synthesis (GPT-OSS high)
 ├── session_logger.py        # saves session JSON to logs/ (includes topic field on revealed items)
 ├── logs/                    # session logs (gitignored)
@@ -281,12 +290,13 @@ agent_v2/
   migration status are things Danny knows freely as a manager — they don't warrant discovery.
   Only facts that require a specific question to earn belong in surface/tacit. This prevents
   early turns from dumping large amounts of platform context.
-- **GPT-OSS for all evaluation calls**: retrieval, turn classification, information-elicited
-  checks, turn evaluation, and report generation all use Databricks GPT-OSS-120B. Claude Sonnet
-  is used only for the synthetic client (persona fidelity) and alternative question generation
-  (creative rewriting). GPT-OSS returns responses as `[reasoning_block, text_block]` lists;
-  `_extract_content()` normalises this; all `.invoke()` calls are wrapped in
-  `warnings.catch_warnings()` to suppress the Pydantic serializer warning this triggers.
+- **Model routing by task type**: Claude Sonnet 4.6 is used for synthetic client (persona fidelity,
+  temp 0.7), `evaluate_turn()` (analytical precision, temp 0.0), and alternative question generation
+  (creative rewriting, temp 0.3). Databricks GPT-OSS-120B is used for retrieval (medium reasoning),
+  `classify_turn()` (low reasoning — simple routing task), and report generation (high reasoning, temp 0.3).
+  GPT-OSS returns responses as `[reasoning_block, text_block]` lists; `_extract_content()` normalises
+  this; all `.invoke()` calls are wrapped in `warnings.catch_warnings()` to suppress the Pydantic
+  serializer warning this triggers.
 - **Plain language in tacit items**: technical terms in scenario items caused the client to
   use jargon it couldn't explain, creating incoherence. Danny speaks Danny's language.
 - **Context passed to retrieval**: last 2 turns of conversation passed so follow-up questions
