@@ -9,6 +9,7 @@ from datetime import datetime
 from pathlib import Path
 
 from langchain_core.messages import HumanMessage, AIMessage
+from paths import SESSION_LOG_DIR
 
 
 def _serialize_messages(messages: list) -> list[dict]:
@@ -88,8 +89,8 @@ def save_session(
     revealed_items: list,
     eval_state: dict,
 ) -> Path:
-    logs_dir = Path(__file__).parent / "logs"
-    logs_dir.mkdir(exist_ok=True)
+    logs_dir = SESSION_LOG_DIR
+    logs_dir.mkdir(parents=True, exist_ok=True)
 
     timestamp = datetime.now()
     filename = logs_dir / f"session_{timestamp.strftime('%Y-%m-%d_%H-%M-%S')}.json"

@@ -15,7 +15,6 @@ between turns and passed in fresh each call — "in-memory" state management.
 """
 
 import sys
-from pathlib import Path
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -24,8 +23,9 @@ from knowledge import load_scenario
 from graph import build_graph
 from eval_graph import build_eval_graph
 from session_logger import save_session
+from paths import SCENARIOS_DIR
 
-DEFAULT_SCENARIO = Path(__file__).parent / "docs" / "scenarios" / "waste_management_client.md"
+DEFAULT_SCENARIO = SCENARIOS_DIR / "waste_management_client.md"
 
 
 def _run_evaluation(messages, revealed_items, scenario, graph, scenario_title):

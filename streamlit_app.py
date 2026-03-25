@@ -6,7 +6,6 @@ All graph logic lives in graph.py, eval_graph.py, knowledge.py, session_logger.p
 """
 
 import json
-from pathlib import Path
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -17,8 +16,9 @@ from knowledge import load_scenario
 from graph import build_graph
 from eval_graph import build_eval_graph
 from session_logger import save_session
+from paths import SCENARIOS_DIR
 
-DEFAULT_SCENARIO = Path(__file__).parent / "docs" / "scenarios" / "waste_management_client.md"
+DEFAULT_SCENARIO = SCENARIOS_DIR / "waste_management_client.md"
 
 # ---------------------------------------------------------------------------
 # Cached resources — built once per process, shared across reruns

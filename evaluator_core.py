@@ -15,7 +15,6 @@ import os
 import re
 import json
 import warnings
-from pathlib import Path
 from langchain_openai import ChatOpenAI
 from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import HumanMessage, AIMessage
@@ -59,9 +58,8 @@ def _parse_json_response(raw: str) -> dict:
     return json.loads(raw)
 
 
-MISTAKE_TYPES = (
-    Path(__file__).parent / "docs" / "evaluation" / "mistake_types.md"
-).read_text()
+from paths import MISTAKE_TYPES_FILE
+MISTAKE_TYPES = MISTAKE_TYPES_FILE.read_text()
 
 # ---------------------------------------------------------------------------
 # Turn classification (runs before mistake evaluation)

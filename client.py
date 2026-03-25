@@ -12,19 +12,17 @@ loaded Scenario object. This means the same node logic works for any scenario â€
 swap the scenario file, get a completely different synthetic client.
 """
 
-from pathlib import Path
 from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import SystemMessage, HumanMessage
 from state import ConversationState
 from knowledge import Scenario, ScenarioItem, retrieve_relevant_knowledge
+from paths import BEHAVIOR_RULES_FILE
 
 # Generic behavior rules â€” loaded from docs/behavior_rules.md.
 # Kept in markdown so they can be edited without touching code.
 # Character-specific behavior (team deference, personality, maturity) lives
 # in the scenario file's own sections.
-_BEHAVIOR_RULES = (
-    Path(__file__).parent / "docs" / "behavior_rules.md"
-).read_text()
+_BEHAVIOR_RULES = BEHAVIOR_RULES_FILE.read_text()
 
 
 def _build_system_prompt(character_text: str, revealed_items: list[ScenarioItem]) -> str:
