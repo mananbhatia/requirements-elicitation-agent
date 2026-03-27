@@ -6,6 +6,7 @@ All graph logic lives in graph.py, eval_graph.py, knowledge.py, session_logger.p
 """
 
 import json
+from pathlib import Path
 from dotenv import load_dotenv
 load_dotenv()
 
