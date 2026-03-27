@@ -1,4 +1,20 @@
-command: ["streamlit", "run", "streamlit_app.py", "--server.address=0.0.0.0", "--server.port=8080"]
+command: ["streamlit", "run", "streamlit_app.py"]
+
 env:
   - name: STREAMLIT_GATHER_USAGE_STATS
     value: "false"
+
+  - name: SESSION_LOG_DIR
+    value: "/Volumes/manan_thesis/default/artefact_logs/sessions"
+
+  - name: DATABRICKS_BASE_URL
+    value: "https://dbc-0f232e4d-3ed4.cloud.databricks.com/serving-endpoints"
+
+  - name: ANTHROPIC_API_KEY
+    valueFrom: anthropic_key
+
+  - name: OPENAI_API_KEY
+    valueFrom: openai_key
+
+  - name: DATABRICKS_TOKEN
+    valueFrom: databricks_token

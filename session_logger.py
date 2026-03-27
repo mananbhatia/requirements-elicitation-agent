@@ -1,17 +1,19 @@
 """
 Session logger — saves complete session data after each evaluation.
 
-Local development: writes JSON to SESSION_LOG_DIR (defaults to logs/).
-Databricks deployment: writes to Unity Catalog Volume when SESSION_LOG_DIR
-starts with /Volumes/ — the volume is mounted as a regular filesystem path
-inside a Databricks App, so standard file I/O works. The only difference is
-that parent Volume directories (catalog/schema/volume) already exist and must
-not be passed to mkdir(parents=True), which would try to create /Volumes itself.
+Local development: writes JSON to SESSION_LOG_DIR (defaults to logs/) using
+standard filesystem calls.
+
+Databricks Apps deployment: when SESSION_LOG_DIR starts with /Volumes/,
+writes via the Databricks Files API — Unity Catalog Volumes are not mounted
+as a regular filesystem in the App container.
 
 Returns (path, content) so callers have the JSON without reading it back.
 """
 
 import json
+import os
+import requests
 from datetime import datetime
 from pathlib import Path
 
@@ -93,6 +95,40 @@ def _compute_summary_stats(annotations: list) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Databricks Files API helpers (used when SESSION_LOG_DIR is a Volume path)
+# ---------------------------------------------------------------------------
+
+def _get_workspace_host() -> str:
+    """
+    Returns the Databricks workspace base URL with https:// scheme.
+    DATABRICKS_HOST is auto-injected in Databricks Apps (hostname only, no scheme).
+    Falls back to deriving from DATABRICKS_BASE_URL for local testing.
+    """
+    host = os.environ.get("DATABRICKS_HOST", "").rstrip("/")
+    if not host:
+        host = os.environ.get("DATABRICKS_BASE_URL", "").rstrip("/").removesuffix("/serving-endpoints")
+    if host and not host.startswith("https://"):
+        host = f"https://{host}"
+    return host
+
+
+
+def _files_api_write(file_path: Path, content: str, host: str, token: str) -> None:
+    """Write a file to a Unity Catalog Volume via the Databricks Files API."""
+    api_path = str(file_path).lstrip("/")
+    resp = requests.put(
+        f"{host}/api/2.0/fs/files/{api_path}",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/octet-stream",
+        },
+        data=content.encode("utf-8"),
+        timeout=30,
+    )
+    resp.raise_for_status()
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
@@ -105,9 +141,9 @@ def save_session(
     """
     Saves session data and returns (path, json_content).
 
-    For Volume paths (/Volumes/...), only the leaf directory is created —
-    the Volume itself is already mounted and its parent dirs already exist.
-    For local paths, mkdir(parents=True) creates the full directory tree.
+    Dispatches on SESSION_LOG_DIR:
+    - /Volumes/...  → Databricks Files API (App deployment)
+    - anything else → standard filesystem (local development)
     """
     logs_dir = SESSION_LOG_DIR
     timestamp = datetime.now()
@@ -127,10 +163,11 @@ def save_session(
     content = json.dumps(payload, indent=2, ensure_ascii=False)
 
     if str(logs_dir).startswith("/Volumes/"):
-        # Volume dirs above this point already exist; only create the leaf.
-        logs_dir.mkdir(exist_ok=True)
+        host = _get_workspace_host()
+        token = os.environ.get("DATABRICKS_TOKEN", "")
+        _files_api_write(filename, content, host, token)
     else:
         logs_dir.mkdir(parents=True, exist_ok=True)
+        filename.write_text(content)
 
-    filename.write_text(content)
     return filename, content
