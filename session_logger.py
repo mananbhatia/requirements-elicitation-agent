@@ -1,7 +1,14 @@
 """
-Session logger — saves complete session data to disk after each evaluation.
+Session logger — saves complete session data after each evaluation.
 
-Output: logs/session_YYYY-MM-DD_HH-MM-SS.json
+Local development: writes JSON to SESSION_LOG_DIR (defaults to logs/).
+Databricks deployment: writes to Unity Catalog Volume when SESSION_LOG_DIR
+starts with /Volumes/ — the volume is mounted as a regular filesystem path
+inside a Databricks App, so standard file I/O works. The only difference is
+that parent Volume directories (catalog/schema/volume) already exist and must
+not be passed to mkdir(parents=True), which would try to create /Volumes itself.
+
+Returns (path, content) so callers have the JSON without reading it back.
 """
 
 import json
@@ -11,6 +18,10 @@ from pathlib import Path
 from langchain_core.messages import HumanMessage, AIMessage
 from paths import SESSION_LOG_DIR
 
+
+# ---------------------------------------------------------------------------
+# Serialisation helpers
+# ---------------------------------------------------------------------------
 
 def _serialize_messages(messages: list) -> list[dict]:
     result = []
@@ -44,13 +55,11 @@ def _serialize_revealed_items(revealed_items: list) -> list[dict]:
 def _compute_summary_stats(annotations: list) -> dict:
     total = len(annotations)
 
-    # Turn type counts.
     by_type: dict[str, int] = {}
     for a in annotations:
         tt = a.get("turn_type", "question")
         by_type[tt] = by_type.get(tt, 0) + 1
 
-    # Question-only stats (is_well_formed/information_elicited can be None for other types).
     questions = [a for a in annotations if a.get("turn_type", "question") == "question"]
     q_total = len(questions)
     q_with_mistakes = sum(1 for a in questions if a.get("is_well_formed") is False)
@@ -83,20 +92,28 @@ def _compute_summary_stats(annotations: list) -> dict:
     }
 
 
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
 def save_session(
     scenario_title: str,
     transcript: list,
     revealed_items: list,
     eval_state: dict,
-) -> Path:
-    logs_dir = SESSION_LOG_DIR
-    logs_dir.mkdir(parents=True, exist_ok=True)
+) -> tuple[Path, str]:
+    """
+    Saves session data and returns (path, json_content).
 
+    For Volume paths (/Volumes/...), only the leaf directory is created —
+    the Volume itself is already mounted and its parent dirs already exist.
+    For local paths, mkdir(parents=True) creates the full directory tree.
+    """
+    logs_dir = SESSION_LOG_DIR
     timestamp = datetime.now()
     filename = logs_dir / f"session_{timestamp.strftime('%Y-%m-%d_%H-%M-%S')}.json"
 
     annotations = eval_state.get("turn_annotations", [])
-
     payload = {
         "timestamp": timestamp.isoformat(),
         "scenario": scenario_title,
@@ -107,6 +124,13 @@ def save_session(
         "report": eval_state.get("report", {}),
         "summary_stats": _compute_summary_stats(annotations),
     }
+    content = json.dumps(payload, indent=2, ensure_ascii=False)
 
-    filename.write_text(json.dumps(payload, indent=2, ensure_ascii=False))
-    return filename
+    if str(logs_dir).startswith("/Volumes/"):
+        # Volume dirs above this point already exist; only create the leaf.
+        logs_dir.mkdir(exist_ok=True)
+    else:
+        logs_dir.mkdir(parents=True, exist_ok=True)
+
+    filename.write_text(content)
+    return filename, content

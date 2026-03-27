@@ -60,6 +60,8 @@ def _init_session():
         st.session_state.eval_state = None
     if "log_path" not in st.session_state:
         st.session_state.log_path = None
+    if "log_content" not in st.session_state:
+        st.session_state.log_content = None
     if "scenario_path" not in st.session_state:
         st.session_state.scenario_path = scenario_path
 
@@ -255,13 +257,14 @@ def _run_evaluation():
 
     st.session_state.eval_state = state
 
-    log_path = save_session(
+    log_path, log_content = save_session(
         scenario.title,
         st.session_state.lc_messages,
         st.session_state.revealed_items,
         state,
     )
     st.session_state.log_path = str(log_path)
+    st.session_state.log_content = log_content
     st.session_state.phase = "evaluation"
     st.rerun()
 
@@ -527,15 +530,14 @@ def _render_evaluation():
     # -------------------------------------------------------------------------
     # Download session log
     # -------------------------------------------------------------------------
-    if st.session_state.log_path:
-        log_file = Path(st.session_state.log_path)
-        if log_file.exists():
-            st.download_button(
-                label="Download session log",
-                data=log_file.read_text(encoding="utf-8"),
-                file_name=log_file.name,
-                mime="application/json",
-            )
+    if st.session_state.get("log_content"):
+        log_name = Path(st.session_state.log_path).name if st.session_state.log_path else "session.json"
+        st.download_button(
+            label="Download session log",
+            data=st.session_state.log_content,
+            file_name=log_name,
+            mime="application/json",
+        )
 
 
 # ---------------------------------------------------------------------------
