@@ -172,6 +172,11 @@ Output ONLY a JSON object, no explanation, no reasoning, no other text:
 
 
 def format_transcript(messages: list) -> str:
+    """Convert a list of LangChain message objects (or dicts) to a plain text transcript.
+    Used when the full conversation is needed — e.g. for classify_turn() and report generation.
+    For evaluation of a specific turn, use format_transcript_up_to() instead to avoid
+    exposing the client's response to the evaluator (outcome bias).
+    """
     lines = []
     for m in messages:
         if isinstance(m, HumanMessage):

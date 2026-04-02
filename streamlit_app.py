@@ -62,6 +62,13 @@ def _init_session():
         st.session_state.log_path = None
     if "log_content" not in st.session_state:
         st.session_state.log_content = None
+    if "consultant_email" not in st.session_state:
+        headers = dict(st.context.headers)
+        st.session_state.consultant_email = (
+            headers.get("X-Forwarded-Email")
+            or headers.get("X-Db-User")
+            or "unknown"
+        )
     if "scenario_path" not in st.session_state:
         st.session_state.scenario_path = scenario_path
 
@@ -96,6 +103,18 @@ def _render_sidebar():
     with st.sidebar:
         st.markdown("## Revodata")
         st.markdown("**Consultant Interview Training**")
+        st.caption("🚧 Alpha — feedback welcome.")
+        st.caption("When done, click **End Interview** to run your evaluation.")
+        st.divider()
+
+        if st.session_state.phase == "conversation":
+            if st.button("End Interview", type="primary", use_container_width=True):
+                st.session_state.phase = "evaluating"
+                st.rerun()
+        elif st.session_state.phase in ("evaluation", "evaluating"):
+            if st.button("Start New Interview", type="secondary", use_container_width=True):
+                _reset_session()
+
         st.divider()
 
         # Briefing
@@ -125,16 +144,6 @@ def _render_sidebar():
                 st.markdown(f"**{display}**")
                 if subtopics:
                     st.caption(" · ".join(subtopics))
-
-        st.divider()
-
-        if st.session_state.phase == "conversation":
-            if st.button("End Interview", type="primary", use_container_width=True):
-                st.session_state.phase = "evaluating"
-                st.rerun()
-        elif st.session_state.phase in ("evaluation", "evaluating"):
-            if st.button("Start New Interview", type="secondary", use_container_width=True):
-                _reset_session()
 
 
 # ---------------------------------------------------------------------------
@@ -262,6 +271,7 @@ def _run_evaluation():
         st.session_state.lc_messages,
         st.session_state.revealed_items,
         state,
+        consultant_email=st.session_state.get("consultant_email", "unknown"),
     )
     st.session_state.log_path = str(log_path)
     st.session_state.log_content = log_content
@@ -450,53 +460,75 @@ def _render_evaluation():
         if verdict:
             st.caption(f"**Verdict:** {verdict}")
 
-    with st.expander("Turn-by-Turn Detail", expanded=False):
-        if not annotations:
-            st.write("No consultant turns to display.")
-        else:
-            for ann in annotations:
-                idx = ann.get("turn_index", "?")
-                question = ann.get("question", "")
-                turn_type = ann.get("turn_type", "question")
-                well_formed = ann.get("is_well_formed")
-                info_elicited = ann.get("information_elicited")
-                mistakes = ann.get("mistakes", [])
-                icon = _turn_icon(turn_type, well_formed, info_elicited)
-                danny_response = _get_client_response(idx)
-                alt = alternatives.get(idx)
+    st.markdown("#### Turn-by-Turn Detail")
+    if not annotations:
+        st.write("No consultant turns to display.")
+    else:
+        for ann in annotations:
+            idx = ann.get("turn_index", "?")
+            question = ann.get("question", "")
+            turn_type = ann.get("turn_type", "question")
+            well_formed = ann.get("is_well_formed")
+            info_elicited = ann.get("information_elicited")
+            mistakes = ann.get("mistakes", [])
+            icon = _turn_icon(turn_type, well_formed, info_elicited)
+            danny_response = _get_client_response(idx)
+            alt = alternatives.get(idx)
 
-                q_short = (question[:80] + "…") if len(question) > 80 else question
-                with st.expander(f"{icon} Turn {idx} [{turn_type}]: {q_short}", expanded=False):
-                    wf_icon = "✅" if well_formed is True else ("🔴" if well_formed is False else "—")
-                    ie_icon = "✅" if info_elicited is True else ("⚠️" if info_elicited is False else "—")
-                    wf_label = "Yes" if well_formed is True else ("No" if well_formed is False else "N/A")
-                    ie_label = "Yes" if info_elicited is True else ("No" if info_elicited is False else "N/A")
-                    badges_md = f"**Well-formed:** {wf_icon} {wf_label} &nbsp;&nbsp;&nbsp; **Info elicited:** {ie_icon} {ie_label}"
+            q_short = (question[:80] + "…") if len(question) > 80 else question
+            with st.expander(f"{icon} Turn {idx} [{turn_type}]: {q_short}", expanded=False):
+                wf_icon = "✅" if well_formed is True else ("🔴" if well_formed is False else "—")
+                ie_icon = "✅" if info_elicited is True else ("⚠️" if info_elicited is False else "—")
+                wf_label = "Yes" if well_formed is True else ("No" if well_formed is False else "N/A")
+                ie_label = "Yes" if info_elicited is True else ("No" if info_elicited is False else "N/A")
+                badges_md = f"**Well-formed:** {wf_icon} {wf_label} &nbsp;&nbsp;&nbsp; **Info elicited:** {ie_icon} {ie_label}"
 
-                    if turn_type in ("acknowledgment", "explanation"):
-                        st.caption(f"Not evaluated — {turn_type}")
+                if turn_type in ("acknowledgment", "explanation"):
+                    st.caption(f"Not evaluated — {turn_type}")
+                    st.markdown(f"**Consultant:** {question}")
+                    if danny_response:
+                        st.markdown(f"**Client:** {danny_response}")
+
+                elif turn_type == "solution_proposal":
+                    if info_elicited is True:
+                        st.markdown(badges_md, unsafe_allow_html=True)
+                        st.markdown(f"**Consultant:** {question}")
+                        if danny_response:
+                            st.markdown(f"**Client:** {danny_response}")
+                    elif alt:
+                        _render_comparison_table(question, danny_response, alt, well_formed, info_elicited)
+                    else:
+                        st.markdown(badges_md, unsafe_allow_html=True)
                         st.markdown(f"**Consultant:** {question}")
                         if danny_response:
                             st.markdown(f"**Client:** {danny_response}")
 
-                    elif turn_type == "solution_proposal":
-                        if info_elicited is True:
-                            st.markdown(badges_md, unsafe_allow_html=True)
-                            st.markdown(f"**Consultant:** {question}")
-                            if danny_response:
-                                st.markdown(f"**Client:** {danny_response}")
-                        elif alt:
-                            _render_comparison_table(question, danny_response, alt, well_formed, info_elicited)
-                        else:
-                            st.markdown(badges_md, unsafe_allow_html=True)
-                            st.markdown(f"**Consultant:** {question}")
-                            if danny_response:
-                                st.markdown(f"**Client:** {danny_response}")
+                elif turn_type == "unproductive_statement":
+                    if mistakes:
+                        expl = mistakes[0].get("explanation", "")
+                        st.markdown(f"**Mistake:** `{mistakes[0]['mistake_type']}` — {expl}")
+                    if alt:
+                        _render_comparison_table(question, danny_response, alt, well_formed, info_elicited)
+                    else:
+                        st.markdown(badges_md, unsafe_allow_html=True)
+                        st.markdown(f"**Consultant:** {question}")
+                        if danny_response:
+                            st.markdown(f"**Client:** {danny_response}")
 
-                    elif turn_type == "unproductive_statement":
+                else:
+                    # question turn
+                    is_clean = well_formed is True and info_elicited is True
+                    if is_clean:
+                        st.markdown(badges_md, unsafe_allow_html=True)
+                        st.markdown(f"**Consultant:** {question}")
+                        if danny_response:
+                            st.markdown(f"**Client:** {danny_response}")
+                    else:
                         if mistakes:
                             expl = mistakes[0].get("explanation", "")
                             st.markdown(f"**Mistake:** `{mistakes[0]['mistake_type']}` — {expl}")
+                        elif info_elicited is False:
+                            st.caption("Well-formed — did not elicit new information.")
                         if alt:
                             _render_comparison_table(question, danny_response, alt, well_formed, info_elicited)
                         else:
@@ -504,28 +536,6 @@ def _render_evaluation():
                             st.markdown(f"**Consultant:** {question}")
                             if danny_response:
                                 st.markdown(f"**Client:** {danny_response}")
-
-                    else:
-                        # question turn
-                        is_clean = well_formed is True and info_elicited is True
-                        if is_clean:
-                            st.markdown(badges_md, unsafe_allow_html=True)
-                            st.markdown(f"**Consultant:** {question}")
-                            if danny_response:
-                                st.markdown(f"**Client:** {danny_response}")
-                        else:
-                            if mistakes:
-                                expl = mistakes[0].get("explanation", "")
-                                st.markdown(f"**Mistake:** `{mistakes[0]['mistake_type']}` — {expl}")
-                            elif info_elicited is False:
-                                st.caption("Well-formed — did not elicit new information.")
-                            if alt:
-                                _render_comparison_table(question, danny_response, alt, well_formed, info_elicited)
-                            else:
-                                st.markdown(badges_md, unsafe_allow_html=True)
-                                st.markdown(f"**Consultant:** {question}")
-                                if danny_response:
-                                    st.markdown(f"**Client:** {danny_response}")
 
     # -------------------------------------------------------------------------
     # Download session log

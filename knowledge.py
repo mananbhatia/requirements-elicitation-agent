@@ -110,6 +110,22 @@ def _parse_bullets(section_body: str) -> list[tuple[str, str]]:
 def load_scenario(path: str | Path) -> Scenario:
     """
     Parse a scenario markdown file into a Scenario object.
+
+    The markdown file encodes three distinct layers of knowledge:
+    - character_text: always visible to the LLM — defines identity and personality,
+      but contains zero factual data about the platform or situation.
+    - surface_items: facts gated behind relevant questions. Parsed from bullet lists
+      in "What the Client Can Articulate" sections.
+    - tacit_items: facts the client guards more carefully. Parsed from the
+      "What the Client Knows But Won't Volunteer" section.
+
+    Consultant-facing metadata (briefing, topic taxonomy) is extracted separately
+    and never sent to the client LLM.
+
+    Each bullet item may carry an inline [topic: code] tag to associate it with
+    the topic taxonomy. The tag is stripped from the item content before storage.
+    Item IDs are generated as content slugs — stable across reloads as long as
+    the content doesn't change.
     """
     text = Path(path).read_text()
 
@@ -280,7 +296,31 @@ def retrieve_relevant_knowledge(
     recent_context: str = "",
 ) -> list[ScenarioItem]:
     """
-    Returns newly unlocked items (surface or tacit) for this turn.
+    Decide which knowledge items (if any) the consultant's question has earned.
+
+    The retrieval LLM (GPT-OSS-120B) applies a three-step filter:
+    1. Structural check — does the input contain a verb or question word?
+       Bare noun phrases like "SCIM?" or "clusters?" fail immediately.
+    2. Intent check — does it ask about this specific client's situation?
+       Generic technology questions or catch-alls ("tell me more") are rejected.
+    3. Relevance matching — for each candidate item, the test is:
+       "if this item did not exist, would the question go unanswered?"
+       This is direct specificity, not topical association. A broad question
+       about "access management" does NOT earn every item about access — at most
+       the one item that most centrally characterises that area.
+
+    Tacit items have an extra pre-filter: a tacit item only becomes a candidate
+    once a surface item in the same subtopic has already been revealed. This
+    models how a client's guarded knowledge surfaces: first they describe the
+    situation, then specific probing reveals the underlying problem.
+
+    The [:3] cap at the end is a guardrail against prompt misjudgement — the
+    prompt does the calibration work; the cap is a last resort. If it binds
+    regularly, the prompt needs tuning, not the cap.
+
+    Returns a list of newly unlocked ScenarioItem objects, ordered by relevance
+    (most directly targeted item first), or an empty list if the question is
+    not genuine or earns nothing.
     """
     unrevealed_surface = [t for t in surface_items if t.id not in already_revealed_ids]
     unrevealed_tacit = [t for t in tacit_items if t.id not in already_revealed_ids]

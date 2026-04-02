@@ -143,6 +143,32 @@ def build_alternative_simulator(conversation_graph):
     llm = ChatAnthropic(model="claude-sonnet-4-6", temperature=0.3)
 
     def alternative_simulator(state: EvaluationState) -> dict:
+        """
+        For each turn where is_well_formed is False or the turn is an unproductive_statement,
+        runs three stages to produce a concrete counterfactual for feedback:
+
+        Stage A — Generate an improved question (Claude Sonnet 4.6, temp 0.3).
+            The generator only sees the transcript BEFORE the original question — never the
+            client's response to it. This prevents the generator from simply reframing the
+            original question to match what the client already said.
+            Includes a retry loop (up to _MAX_ALT_ATTEMPTS): each failed attempt is
+            pre-checked with evaluate_turn(); if it fails, the mistake is fed back as a
+            retry_note so the next attempt can avoid repeating it.
+
+        Stage B — Simulate the client's response to the alternative question.
+            Invokes the conversation graph with the alternative question in place of the
+            original. Seeds with prior_revealed (items unlocked before this turn) so the
+            client has the context it already shared, but the alternative question must
+            earn any new items through retrieval on its own.
+
+        Stage C — Evaluate the alternative and compare both pairs.
+            Reuses the Stage A pre-check annotation (no extra LLM call) for alt_is_well_formed.
+            Computes alt_information_elicited by comparing items newly revealed in simulation
+            against everything revealed through the original turn — items the alternative
+            uniquely unlocked that the original question at this turn did not get.
+            A separate verdict call (Claude Sonnet 4.6) produces a one-sentence comparison
+            of what changed between the original and alternative question/response pairs.
+        """
         annotations = state.get("turn_annotations", [])
         messages = state["transcript"]
         revealed_items = state.get("revealed_items", [])

@@ -103,7 +103,7 @@ Result dict per alternative:
 alt_revealed_items, alt_is_well_formed, alt_information_elicited, improvement_verdict`
 
 **Node 3 — report_generator**
-One LLM call (Claude Sonnet 4.6, temp 0.3) that receives the full transcript,
+One LLM call (GPT-OSS-120B, high reasoning, temp 0.3) that receives the full transcript,
 all annotations, all alternatives, and pre-computed topic coverage stats. Returns a structured JSON report:
 `{summary, continue, stop, start}`. Statistics and coverage stats are computed in Python before the LLM
 call — the LLM is told not to recalculate.
@@ -214,11 +214,16 @@ Three dimensions, each set independently in the `Maturity Level` section of the 
 - **Adaptability**: did the consultant adapt to the client's knowledge level over time?
 
 ## Session Logging
-After each evaluation, `session_logger.py` saves a JSON file to `logs/`:
-`logs/session_YYYY-MM-DD_HH-MM-SS.json`
+After each evaluation, `session_logger.py` saves a JSON file:
+- **Local**: `logs/sessions/session_YYYY-MM-DD_HH-MM-SS.json`
+- **Databricks Apps**: `SESSION_LOG_DIR/sessions/session_YYYY-MM-DD_HH-MM-SS.json` written via Databricks Files API (PUT /api/2.0/fs/files/) — Unity Catalog Volumes are not auto-mounted in App containers.
 
-Contains: timestamp, scenario title, transcript (role+content), revealed items (id/content/layer/topic/unlocked_at_turn),
-turn_annotations, simulated_alternatives (including `alt_revealed_items` and all Stage C fields), report dict `{summary, continue, stop, start}`, summary_stats.
+`SESSION_LOG_DIR` defaults to `logs/` locally; set via env var in `app.yaml` for deployment.
+
+Contains: `consultant_email` (from `X-Forwarded-Email` header on Databricks), timestamp, scenario title,
+transcript (role+content), revealed items (id/content/layer/topic/unlocked_at_turn),
+turn_annotations, simulated_alternatives (including `alt_revealed_items` and all Stage C fields),
+report dict `{summary, continue, stop, start}`, summary_stats.
 Note: `topic_coverage` and `stats` are stored in `EvaluationState` but not currently persisted to the session log.
 
 `logs/` is gitignored.
@@ -237,8 +242,24 @@ Note: `topic_coverage` and `stats` are stored in `EvaluationState` but not curre
 - Evaluation display: single page, three stacked sections:
   1. Stats bar (4 metrics) + topic coverage grid (2-col, bold topic + colored fraction + subtopic caption line)
   2. Summary sentence + Continue / Stop / Start in three columns
-  3. Turn-by-Turn Detail (outer expander, collapsed by default) — each turn is its own nested expander showing badges, You/Danny exchange, mistake tag + explanation, and Original vs Alternative side-by-side HTML table where applicable
+  3. Turn-by-Turn Detail (heading) — each turn is its own expander showing badges, You/Danny exchange, mistake tag + explanation, and Original vs Alternative side-by-side HTML table where applicable
 - Download session log button below the turn-by-turn section
+
+## Deployment (Databricks Apps)
+
+The app is deployed as a Databricks App on Azure Databricks. Configuration is in `app.yaml`.
+
+Key deployment details:
+- `paths.py` uses `Path(__file__).resolve().parent` for all file paths — safe for any working directory.
+- `SESSION_LOG_DIR` is set via env var in `app.yaml` to a Unity Catalog Volume path (`/Volumes/...`).
+- UC Volumes are NOT auto-mounted in App containers — `session_logger.py` uses the Databricks Files API
+  (`PUT /api/2.0/fs/files/`) to write logs. No directory pre-creation needed; the PUT creates the file directly.
+- `DATABRICKS_HOST` is auto-injected by the App runtime (hostname only, no `https://`).
+  `_get_workspace_host()` in `session_logger.py` adds the scheme if missing.
+- API keys (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `DATABRICKS_TOKEN`) are stored as Databricks secrets
+  and referenced via `valueFrom` in `app.yaml`.
+- User identity is captured from the `X-Forwarded-Email` request header (auto-injected by the App runtime)
+  and stored as `consultant_email` in each session log.
 
 ## Commands
 - `python main.py` — run terminal interview with default scenario
@@ -262,7 +283,9 @@ agent_v2/
 ├── turn_evaluator.py        # node 1: per-turn mistake classification
 ├── alternative_simulator.py # node 2: alternative generation (Sonnet 4.6) + Stage C comparison
 ├── report_generator.py      # node 3: feedback report synthesis (GPT-OSS high)
-├── session_logger.py        # saves session JSON to logs/ (includes topic field on revealed items)
+├── session_logger.py        # saves session JSON; local filesystem or Databricks Files API
+├── paths.py                 # deployment-safe path resolution; SESSION_LOG_DIR from env
+├── app.yaml                 # Databricks Apps deployment config (env vars, secret refs)
 ├── logs/                    # session logs (gitignored)
 ├── test_databricks.py       # smoke test for Databricks GPT-OSS endpoint
 ├── test_eval_comparison.py  # side-by-side evaluation accuracy: GPT-OSS vs Sonnet (13 cases)
@@ -277,6 +300,131 @@ agent_v2/
 │       └── client_design_principles.md  # C-LEIA-based authoring principles
 └── requirements.txt
 ```
+
+## System Design Rationale
+
+This section explains the architectural choices from first principles — why this approach was
+taken, what alternatives exist, and what problem each design decision solves. Written for
+thesis documentation and for understanding the system as an AI engineering exercise.
+
+### Why LLMs for synthetic clients, not rule-based scripting
+
+A scripted client (decision trees, canned responses) can only respond to anticipated consultant
+moves. Real clients don't behave that way — they interpret questions, react to framing, and
+volunteer adjacent information contextually. LLMs bring natural language understanding and
+the ability to respond to unanticipated phrasing without explicit rule coverage.
+
+The risk is the opposite problem: LLMs are too cooperative. Without constraints, an LLM client
+answers every question fully and volunteers everything it knows, which eliminates the training
+value entirely. The entire architecture — knowledge gating, behavior rules, the retrieval gate —
+exists to solve this problem while keeping the conversational naturalness.
+
+### Why knowledge gating (not prompt-based suppression)
+
+The naive approach is to give the client LLM all the scenario knowledge and instruct it via
+rules to only reveal information when asked about it. This doesn't work reliably. LLMs leak
+context they've been told to suppress, especially under indirect questioning. The information
+is in the prompt — the model has it, and sufficiently probing questions will surface it.
+
+Knowledge gating solves this at the architectural level: the client LLM cannot reveal what
+it cannot see. Facts are held outside the system prompt and injected only after the retrieval
+gate confirms the consultant earned them. Suppression rules cannot reliably beat visibility.
+Not giving the information to the model is the only robust approach.
+
+### Why a separate retrieval LLM, not a rule-based matching function
+
+Matching a consultant question to a knowledge item is fundamentally a semantic task, not a
+keyword task. "How is user access managed?" and "who controls who can log into the platform?"
+are the same question expressed differently. A rule-based matcher (keyword overlap, embedding
+similarity threshold) would either over-match (broad questions unlock everything) or under-match
+(novel phrasing misses items it should earn).
+
+Using an LLM for retrieval enables the "direct specificity" criterion: the retrieval model can
+reason about whether a question specifically targets an item, not just whether it's topically
+adjacent. This is a semantic judgment that requires understanding both the question's intent and
+the item's content — well-suited to LLMs.
+
+GPT-OSS-120B is used here (not Claude) because retrieval is a high-frequency call on the
+critical path and needs medium reasoning effort, not creative generation. Using the same model
+as the client would be redundant and slower.
+
+### Why LangGraph, not a plain Python loop
+
+A plain loop (`while True: input → LLM → print`) would work for the conversation. The reasons
+to use LangGraph are:
+
+1. **State management**: LangGraph's typed state with reducers makes it explicit what persists
+   across turns (`messages`, `revealed_items`) and how updates are merged. A plain dict would
+   work but is easier to corrupt by accident.
+
+2. **Separation of concerns**: the retrieval gate and client response are genuinely different
+   operations. Putting them in separate nodes means either can be replaced, tested, or logged
+   independently.
+
+3. **Reuse for evaluation**: the evaluation pipeline reuses the same conversation graph for
+   Stage B simulation (replaying turns with alternative questions). LangGraph's `invoke(state)`
+   interface makes this clean — you can seed the graph with a partial state and replay from any
+   point.
+
+4. **Extensibility**: adding a new node (e.g. a post-processing node to flag jargon) doesn't
+   require restructuring the loop — just insert a node into the graph definition.
+
+### Why two separate graphs (conversation vs evaluation)
+
+The conversation graph is stateless between sessions — it holds only the current turn's context.
+The evaluation pipeline is a one-shot batch job that processes the entire transcript after the
+interview ends. These have fundamentally different lifecycles.
+
+Mixing them would require the conversation graph to carry evaluation state throughout the
+interview (wasteful) or trigger evaluation inline after every turn (too slow, changes the
+conversational experience). Keeping them separate means: the conversation graph is fast and
+lightweight; the evaluation graph is thorough and runs once.
+
+### Why classify before evaluate (two-step evaluation)
+
+The mistake taxonomy (14 types) is designed for questions. Applying it to non-question turns
+— acknowledgments, solution proposals, statements — produces false positives. A consultant
+saying "got it, that makes sense" would be flagged for vagueness or not asking about a specific
+topic, even though it's not a question.
+
+`classify_turn()` runs first (GPT-OSS low reasoning — simple routing, not semantic) and
+routes each turn to the appropriate evaluation logic. Questions go to `evaluate_turn()` against
+the 14 types. Solution proposals are noted but not penalised for mistakes. Acknowledgments are
+skipped. Unproductive statements are flagged without applying the question taxonomy.
+
+This keeps the mistake taxonomy valid for its intended purpose while correctly handling the
+full range of consultant behaviors.
+
+### Why the alternative simulator (counterfactual learning)
+
+Telling a consultant "this question was vague" is less useful than showing them what a better
+question would have produced. The alternative simulator creates a concrete counterfactual:
+here is the improved question; here is what the client would have said in response.
+
+This is a stronger pedagogical signal than abstract feedback because it answers both "what
+should I have asked?" and "why would that have been better?" simultaneously. The improvement
+verdict then compares both pairs (original question + actual response vs alternative + simulated
+response) in one sentence — a format directly usable in a feedback report.
+
+The three-stage design (generate → verify → simulate) ensures the alternative is genuinely
+better before running the expensive simulation: Stage A generates with a retry loop,
+each failed attempt carrying its mistake back to the generator. Stage B only runs once the
+alternative passes the quality check.
+
+### Why temperature differs by task
+
+Temperature controls creativity vs. consistency:
+- **Client response (temp 0.7)**: high temperature produces varied, natural responses.
+  The same question asked twice should not produce identical wording — real clients don't.
+- **Evaluation (temp 0.0)**: classification and mistake detection should be deterministic.
+  The same question evaluated twice should get the same result.
+- **Alternative generation (temp 0.3)**: low-creative — wants a better version of the
+  original question, not a random rewrite. Enough variation to escape the original phrasing,
+  but anchored to the consultant's intent.
+- **Report generation (temp 0.3)**: structured synthesis of evidence — moderate creativity
+  for readable prose, low enough to stay grounded in the data.
+
+---
 
 ## Key Design Decisions
 - **No facts in character_text**: the only reliable way to prevent leakage is to not give

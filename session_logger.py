@@ -137,6 +137,7 @@ def save_session(
     transcript: list,
     revealed_items: list,
     eval_state: dict,
+    consultant_email: str = "unknown",
 ) -> tuple[Path, str]:
     """
     Saves session data and returns (path, json_content).
@@ -152,6 +153,7 @@ def save_session(
     annotations = eval_state.get("turn_annotations", [])
     payload = {
         "timestamp": timestamp.isoformat(),
+        "consultant_email": consultant_email,
         "scenario": scenario_title,
         "transcript": _serialize_messages(transcript),
         "revealed_items": _serialize_revealed_items(revealed_items),
