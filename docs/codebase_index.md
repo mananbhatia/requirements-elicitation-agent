@@ -24,10 +24,7 @@ agent_v2/
 │   ├── behavior_rules.md                # 9 generic client behavior rules (loaded at runtime by client.py)
 │   ├── scenarios/
 │   │   └── waste_management_client.md   # GreenCycle/Danny scenario — the only scenario currently
-│   ├── evaluation/
-│   │   └── mistake_types.md             # 14 mistake types from Shen et al. (loaded by evaluator_core.py)
-│   └── research/
-│       └── client_design_principles.md  # C-LEIA-based scenario authoring principles (reference only)
+│   └── mistake_types.md                 # 14 mistake types from Shen et al. (loaded by evaluator_core.py)
 ├── logs/                    # Session JSON files, one per completed interview+evaluation (gitignored)
 ├── requirements.txt         # Python dependencies
 └── .env                     # API keys: ANTHROPIC_API_KEY, DATABRICKS_TOKEN, DATABRICKS_BASE_URL (gitignored)
@@ -69,7 +66,7 @@ main.py / streamlit_app.py
           │           │     └─ routes each turn: question / unproductive_statement /
           │           │        solution_proposal / explanation / acknowledgment
           │           └─ evaluate_turn() ─── Claude Sonnet 4.6 (temp 0.0)
-          │                 ├─ reads docs/evaluation/mistake_types.md (loaded at module level)
+          │                 ├─ reads docs/mistake_types.md (loaded at module level)
           │                 └─ one call per question/unproductive_statement turn
           │
           ├─ alternative_simulator.py ─── build_alternative_simulator(conversation_graph)
@@ -112,7 +109,7 @@ No circular dependencies. `evaluator_core.py` is the shared module that prevents
 
 ```
 client.py          reads  docs/behavior_rules.md               (at module load)
-evaluator_core.py  reads  docs/evaluation/mistake_types.md     (at module load)
+evaluator_core.py  reads  docs/mistake_types.md     (at module load)
 knowledge.py       reads  docs/scenarios/*.md                  (at function call)
 ```
 

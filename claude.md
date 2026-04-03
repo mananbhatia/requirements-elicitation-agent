@@ -285,10 +285,7 @@ agent_v2/
 │   ├── scenarios/
 │   │   └── waste_management_client.md   # first scenario (GreenCycle Industries); includes Topics + Consultant Briefing
 │   ├── architecture.md                  # system design rationale (thesis documentation)
-│   ├── evaluation/
-│   │   └── mistake_types.md             # taxonomy of consultant question mistakes
-│   └── research/
-│       └── client_design_principles.md  # C-LEIA-based authoring principles
+│   └── mistake_types.md                 # taxonomy of consultant question mistakes
 └── requirements.txt
 ```
 

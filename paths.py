@@ -16,9 +16,8 @@ ROOT = Path(__file__).resolve().parent
 
 DOCS_DIR            = ROOT / "docs"
 SCENARIOS_DIR       = DOCS_DIR / "scenarios"
-EVAL_DIR            = DOCS_DIR / "evaluation"
 BEHAVIOR_RULES_FILE = DOCS_DIR / "behavior_rules.md"
-MISTAKE_TYPES_FILE  = EVAL_DIR / "mistake_types.md"
+MISTAKE_TYPES_FILE  = DOCS_DIR / "mistake_types.md"
 
 # Write session logs to SESSION_LOG_DIR if set (deployment), else local logs/
 SESSION_LOG_DIR = Path(os.environ.get("SESSION_LOG_DIR", str(ROOT / "logs")))
