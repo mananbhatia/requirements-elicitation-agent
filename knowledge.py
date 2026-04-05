@@ -69,7 +69,8 @@ _CHARACTER_SECTIONS = [
     "maturity level",
     "team members",
     "personality and communication style",
-    "company overview",  # always visible context — client knows this freely as manager
+    "company overview",       # always visible context — client knows this freely as manager
+    "character knowledge",    # generated scenario format: rich narrative from Phase 4
 ]
 
 # Which section headers to drop entirely (meta/training context).
@@ -77,6 +78,7 @@ _DROPPED_SECTIONS = [
     "scope note",
     "what the client genuinely doesn't know",
     "technical reference",
+    "scenario parameters",    # generated scenario metadata — not sent to client LLM
 ]
 
 # Consultant-facing sections — captured separately, not sent to client LLM.
