@@ -23,7 +23,7 @@ agent_v2/
 ├── docs/
 │   ├── behavior_rules.md                # 9 generic client behavior rules (loaded at runtime by client.py)
 │   ├── scenarios/
-│   │   └── waste_management_client.md   # GreenCycle/Danny scenario — the only scenario currently
+│   │   └── waste_management_client.md   # example scenario — the only scenario currently
 │   └── mistake_types.md                 # 14 mistake types from Shen et al. (loaded by evaluator_core.py)
 ├── logs/                    # Session JSON files, one per completed interview+evaluation (gitignored)
 ├── requirements.txt         # Python dependencies
@@ -147,7 +147,7 @@ python test_databricks.py                         # test Databricks model connec
 | Component | Model | Temp | Calls per session | Purpose |
 |---|---|---|---|---|
 | Retrieval gate | GPT-OSS-120B | 0.0 | 1 per conversation turn (~15–20) | Gate: is question genuine + which items does it earn? |
-| Client LLM | Sonnet 4.6 | 0.7 | 1 per conversation turn (~15–20) | Generate Danny's response |
+| Client LLM | Sonnet 4.6 | 0.7 | 1 per conversation turn (~15–20) | Generate client response |
 | Turn classifier | GPT-OSS-120B | 0.0 | 1 per consultant turn (~8–15) | Route turn type (question / statement / proposal / etc.) |
 | Turn evaluator | Sonnet 4.6 | 0.0 | 1 per question/unproductive turn (~6–12) | Evaluate against 14 mistake types |
 | Alt generator | Sonnet 4.6 | 0.3 | 1–3 per ineffective turn (~4–8) | Generate better question (retry loop) |

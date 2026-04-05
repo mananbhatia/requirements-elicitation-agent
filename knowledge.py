@@ -38,11 +38,9 @@ Scenario markdown sections are classified as follows:
 
 import re
 import json
-import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
-import os
-from langchain_openai import ChatOpenAI
+from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import HumanMessage as LCHumanMessage
 
 
@@ -71,7 +69,7 @@ _CHARACTER_SECTIONS = [
     "maturity level",
     "team members",
     "personality and communication style",
-    "company overview",  # always visible context — Danny knows this freely as manager
+    "company overview",  # always visible context — client knows this freely as manager
 ]
 
 # Which section headers to drop entirely (meta/training context).
@@ -298,7 +296,7 @@ def retrieve_relevant_knowledge(
     """
     Decide which knowledge items (if any) the consultant's question has earned.
 
-    The retrieval LLM (GPT-OSS-120B) applies a three-step filter:
+    The retrieval LLM (Claude Sonnet 4.6) applies a three-step filter:
     1. Structural check — does the input contain a verb or question word?
        Bare noun phrases like "SCIM?" or "clusters?" fail immediately.
     2. Intent check — does it ask about this specific client's situation?
@@ -344,33 +342,17 @@ def retrieve_relevant_knowledge(
         f'- id: "{t.id}", fact: "{t.content}"' for t in eligible_tacit
     ) or "(none remaining)"
 
-    token = os.environ.get("DATABRICKS_TOKEN")
-    base_url = os.environ.get("DATABRICKS_BASE_URL")
-    if not token or not base_url:
-        raise EnvironmentError("DATABRICKS_TOKEN and DATABRICKS_BASE_URL must be set in .env")
-    llm = ChatOpenAI(
-        model="databricks-gpt-oss-120b",
-        base_url=base_url,
-        api_key=token,
-        temperature=0.0,
-        extra_body={"reasoning_effort": "medium"},
-    )
+    llm = ChatAnthropic(model="claude-sonnet-4-6", temperature=0.0)
     prompt = _RETRIEVAL_PROMPT.format(
         question=question,
         recent_context=recent_context or "(start of conversation)",
         surface_items=surface_text,
         tacit_items=tacit_text,
     )
-    with warnings.catch_warnings():
-        warnings.filterwarnings("ignore", category=UserWarning, module="pydantic")
-        response = llm.invoke([LCHumanMessage(content=prompt)])
+    response = llm.invoke([LCHumanMessage(content=prompt)])
 
     try:
-        # Normalize list-of-blocks response format (reasoning block + text block).
-        content = response.content
-        if isinstance(content, list):
-            content = "\n".join(b["text"] for b in content if isinstance(b, dict) and b.get("type") == "text")
-        raw = content.strip()
+        raw = response.content.strip()
         # Strip markdown code fences if present.
         if "```" in raw:
             raw = re.sub(r"```[a-z]*\n?", "", raw).replace("```", "").strip()

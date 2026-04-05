@@ -27,7 +27,7 @@ from langchain_anthropic import ChatAnthropic
 from knowledge import load_scenario, ScenarioItem, _RETRIEVAL_PROMPT
 from evaluator_core import _get_databricks_token, _get_databricks_base_url
 
-SCENARIO_PATH = Path(__file__).parent / "docs" / "scenarios" / "waste_management_client.md"
+SCENARIO_PATH = Path(__file__).parent.parent / "docs" / "scenarios" / "waste_management_client.md"
 
 # ---------------------------------------------------------------------------
 # Models
@@ -35,6 +35,9 @@ SCENARIO_PATH = Path(__file__).parent / "docs" / "scenarios" / "waste_management
 
 def make_haiku():
     return ("haiku", ChatAnthropic(model="claude-haiku-4-5-20251001", temperature=0.0))
+
+def make_sonnet():
+    return ("sonnet", ChatAnthropic(model="claude-sonnet-4-6", temperature=0.0))
 
 def make_gpt_oss(effort: str):
     llm = ChatOpenAI(
@@ -212,7 +215,7 @@ if __name__ == "__main__":
 
     print(f"Scenario loaded: {len(surface_items)} surface items, {len(tacit_items)} tacit items\n")
 
-    models = [make_haiku(), make_gpt_oss("low"), make_gpt_oss("medium")]
+    models = [make_haiku(), make_sonnet(), make_gpt_oss("low"), make_gpt_oss("medium")]
 
     for i, case in enumerate(CASES, 1):
         print(f"{'='*80}")

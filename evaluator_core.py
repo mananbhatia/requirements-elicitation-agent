@@ -15,7 +15,6 @@ import os
 import re
 import json
 import warnings
-from langchain_openai import ChatOpenAI
 from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import HumanMessage, AIMessage
 
@@ -222,16 +221,10 @@ def format_transcript_up_to(messages: list, turn_index: int) -> str:
 def classify_turn(message: str, transcript_text: str, turn_index: int) -> dict | None:
     """
     Classify a consultant turn into one of five types before mistake evaluation.
-    Uses GPT-OSS-120B low reasoning — simple routing task, low latency priority.
+    Uses Claude Haiku — simple routing task, low latency priority.
     Returns {"turn_type": str, "reasoning": str} or None on failure.
     """
-    llm = ChatOpenAI(
-        model="databricks-gpt-oss-120b",
-        base_url=_get_databricks_base_url(),
-        api_key=_get_databricks_token(),
-        temperature=0.0,
-        extra_body={"reasoning_effort": "low"},
-    )
+    llm = ChatAnthropic(model="claude-haiku-4-5-20251001", temperature=0.0)
     prompt = _CLASSIFY_PROMPT.format(
         transcript=transcript_text,
         turn_index=turn_index,

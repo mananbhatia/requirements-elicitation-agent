@@ -17,7 +17,7 @@ We define two fields:
 Why track revealed_items in state?
   - The retrieval_node adds to it each turn when new knowledge is unlocked.
   - The client_node reads it to build the system prompt for that turn.
-  - It persists across turns so Danny "remembers" what he's already told the consultant.
+  - It persists across turns so the client "remembers" what they've already told the consultant.
 """
 
 from typing import Annotated, TypedDict

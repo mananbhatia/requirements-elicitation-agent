@@ -283,7 +283,7 @@ def build_alternative_simulator(conversation_graph):
 
             # Stage B: simulate the client's response to the alternative question.
             # Use prior_messages + the alternative question. Pass items already revealed
-            # before this turn so Danny has the facts he's already shared available —
+            # before this turn so the client has the facts they've already shared available —
             # prevents fabrication from character_text inference.
             prior_revealed = [
                 item for item in revealed_items

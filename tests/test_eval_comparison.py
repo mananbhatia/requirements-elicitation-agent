@@ -76,7 +76,7 @@ CASES = [
         "transcript": (
             "Consultant: How is access currently managed in your Databricks environment?\n"
             "Client: Honestly it is all manual right now. Every time someone needs access, "
-            "someone on the team has to go in and grant it. Thomas keeps asking for a better way."
+            "someone on the team has to go in and grant it. A team member keeps asking for a better way."
         ),
         "question": "How is access currently managed in your Databricks environment?",
         "expect_well_formed": True,
@@ -104,7 +104,7 @@ CASES = [
         "label": "MULTIPLE REQUIREMENTS — bundled multi-part question",
         "target": "Ask a question that involves multiple kinds of requirements",
         "transcript": (
-            "Client: Hi, I am Danny. We are trying to get our Databricks setup in better shape, "
+            "Client: Hi, I am Alex. We are trying to get our Databricks setup in better shape, "
             "particularly around access control."
         ),
         "question": (
@@ -118,7 +118,7 @@ CASES = [
         "label": "JARGON — technical acronym the client cannot be expected to know",
         "target": "Use jargon",
         "transcript": (
-            "Client: Hi, I am Danny. We are trying to get our access control in better shape."
+            "Client: Hi, I am Alex. We are trying to get our access control in better shape."
         ),
         "question": "Have you configured SCIM provisioning with your Entra ID tenant?",
         "expect_well_formed": False,
@@ -128,7 +128,7 @@ CASES = [
         "label": "TECHNICAL QUESTION — requires implementation knowledge to answer",
         "target": "Ask a technical question",
         "transcript": (
-            "Client: Hi, I am Danny. We have Unity Catalog set up but I don't think it is "
+            "Client: Hi, I am Alex. We have Unity Catalog set up but I don't think it is "
             "configured correctly."
         ),
         "question": (
@@ -153,7 +153,7 @@ CASES = [
         "label": "VAGUE — no reasonable meaning",
         "target": "Ask a vague question which could infer no reasonable meaning",
         "transcript": (
-            "Client: Hi, I am Danny. We are trying to sort out our Databricks platform."
+            "Client: Hi, I am Alex. We are trying to sort out our Databricks platform."
         ),
         "question": "Tell me more.",
         "expect_well_formed": False,
@@ -174,7 +174,7 @@ CASES = [
         "label": "GENERIC — domain-independent, could apply to any project",
         "target": "Ask a generic, domain-independent question",
         "transcript": (
-            "Client: Hi, I am Danny. We are trying to improve our data platform."
+            "Client: Hi, I am Alex. We are trying to improve our data platform."
         ),
         "question": "What are your main goals for this engagement?",
         "expect_well_formed": False,
@@ -184,7 +184,7 @@ CASES = [
         "label": "TOO LONG — overly complex compound question",
         "target": "Ask a question that is too long or articulated",
         "transcript": (
-            "Client: Hi, I am Danny. We have about 500 users from our old reporting system "
+            "Client: Hi, I am Alex. We have about 500 users from our old reporting system "
             "who need to move onto Databricks."
         ),
         "question": (

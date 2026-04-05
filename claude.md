@@ -25,8 +25,8 @@ The synthetic client cannot reveal what it cannot see. All scenario knowledge is
   the "What the Client Knows But Won't Volunteer" section.
 
 ### Retrieval System
-Each consultant turn runs through a retrieval LLM call (Databricks GPT-OSS-120B, temp 0.0,
-reasoning_effort=medium) before the client responds. The retrieval gate decides whether the
+Each consultant turn runs through a retrieval LLM call (Claude Sonnet 4.6, temp 0.0)
+before the client responds. The retrieval gate decides whether the
 question is genuine and, if so, which items it earned. The number of items returned is an
 output of the relevance judgment — not a hard cap. Follows Grice's Maxim of Quantity: items
 returned should be proportional to what the question covered.
@@ -88,7 +88,7 @@ For every turn where `is_well_formed` is false (questions and unproductive_state
   if it fails, the mistake is fed back as a `retry_note` for the next attempt.
 - *Stage B*: simulates the client's response by invoking the conversation graph with the
   alternative question in place of the original. Seeded with `prior_revealed` — items unlocked
-  at turns 1 through N-1 — so Danny has the facts he's already shared available in context.
+  at turns 1 through N-1 — so the client has the facts they've already shared available in context.
   Original-turn items (unlocked at turn N) are excluded; the alternative question must earn them
   on its own through retrieval.
 - *Stage C*: reuses the Stage A pre-check annotation for `alt_is_well_formed` (no extra LLM call).
@@ -219,8 +219,9 @@ Note: `topic_coverage` and `stats` are stored in `EvaluationState` but not curre
 
 ## Tech Stack
 - Python, LangChain, LangGraph
-- Anthropic Claude Sonnet 4.6 for: synthetic client (temp 0.7), turn evaluation / evaluate_turn (temp 0.0), alternative question generation (temp 0.3)
-- Databricks GPT-OSS-120B (OpenAI-compatible endpoint) for: retrieval gate (medium), turn classification / classify_turn (low), report generation (medium)
+- Anthropic Claude Sonnet 4.6 for: synthetic client (temp 0.7), turn evaluation / evaluate_turn (temp 0.0), alternative question generation (temp 0.3), report generation (temp 0.3)
+- Anthropic Claude Haiku 4.5 for: turn classification / classify_turn (temp 0.0)
+- Databricks GPT-OSS-120B: no longer used in production (still referenced in tests/)
 - python-dotenv for API key management (`DATABRICKS_TOKEN`, `DATABRICKS_BASE_URL`)
 - Streamlit for UI
 
@@ -231,7 +232,7 @@ Note: `topic_coverage` and `stats` are stored in `EvaluationState` but not curre
 - Evaluation display: single page, three stacked sections:
   1. Stats bar (4 metrics) + topic coverage grid (2-col, bold topic + colored fraction + subtopic caption line)
   2. Summary sentence + Continue / Stop / Start in three columns
-  3. Turn-by-Turn Detail (heading) — each turn is its own expander showing badges, You/Danny exchange, mistake tag + explanation, and Original vs Alternative side-by-side HTML table where applicable
+  3. Turn-by-Turn Detail (heading) — each turn is its own expander showing badges, You/Client exchange, mistake tag + explanation, and Original vs Alternative side-by-side HTML table where applicable
 - Download session log button below the turn-by-turn section
 
 ## Deployment (Databricks Apps)
@@ -283,7 +284,7 @@ agent_v2/
 ├── docs/
 │   ├── behavior_rules.md                # generic client behavior rules (loaded by client.py)
 │   ├── scenarios/
-│   │   └── waste_management_client.md   # first scenario (GreenCycle Industries); includes Topics + Consultant Briefing
+│   │   └── waste_management_client.md   # example scenario; includes Topics + Consultant Briefing
 │   ├── architecture.md                  # system design rationale (thesis documentation)
 │   └── mistake_types.md                 # taxonomy of consultant question mistakes
 └── requirements.txt
@@ -298,18 +299,18 @@ agent_v2/
   targets. A `[:3]` code-level cap guards against prompt misjudgement; if it binds regularly,
   the prompt needs tuning. `matched_ids` is ordered by relevance so the cap takes the strongest matches.
 - **Background context belongs in character_text, not gated items**: tooling stack, team size,
-  migration status are things Danny knows freely as a manager — they don't warrant discovery.
+  migration status are things the client knows freely as a manager — they don't warrant discovery.
   Only facts that require a specific question to earn belong in surface/tacit. This prevents
   early turns from dumping large amounts of platform context.
 - **Model routing by task type**: Claude Sonnet 4.6 is used for synthetic client (persona fidelity,
-  temp 0.7), `evaluate_turn()` (analytical precision, temp 0.0), and alternative question generation
-  (creative rewriting, temp 0.3). Databricks GPT-OSS-120B is used for retrieval (medium reasoning),
-  `classify_turn()` (low reasoning — simple routing task), and report generation (high reasoning, temp 0.3).
-  GPT-OSS returns responses as `[reasoning_block, text_block]` lists; `_extract_content()` normalises
-  this; all `.invoke()` calls are wrapped in `warnings.catch_warnings()` to suppress the Pydantic
-  serializer warning this triggers.
+  temp 0.7), `evaluate_turn()` (analytical precision, temp 0.0), alternative question generation
+  (creative rewriting, temp 0.3), and report generation (temp 0.3). Claude Haiku 4.5 is used for
+  `classify_turn()` (simple 5-way routing, temp 0.0). Databricks GPT-OSS-120B is used for the
+  retrieval gate (medium reasoning, temp 0.0). GPT-OSS returns responses as `[reasoning_block,
+  text_block]` lists; `_extract_content()` normalises this; all `.invoke()` calls are wrapped in
+  `warnings.catch_warnings()` to suppress the Pydantic serializer warning this triggers.
 - **Plain language in tacit items**: technical terms in scenario items caused the client to
-  use jargon it couldn't explain, creating incoherence. Danny speaks Danny's language.
+  use jargon it couldn't explain, creating incoherence. The client speaks in plain language.
 - **Context passed to retrieval**: last 2 turns of conversation passed so follow-up questions
   ("is it X or Y?") resolve correctly without requiring the consultant to repeat the topic.
 - **Two independent evaluation dimensions**: `is_well_formed` (question quality) and
