@@ -132,6 +132,47 @@ def _files_api_write(file_path: Path, content: str, host: str, token: str) -> No
 # Public API
 # ---------------------------------------------------------------------------
 
+def save_partial_session(
+    scenario_title: str,
+    transcript: list,
+    revealed_items: list,
+    session_id: str,
+    consultant_email: str = "unknown",
+) -> None:
+    """
+    Save transcript and revealed items mid-conversation, before evaluation runs.
+
+    Uses a fixed filename keyed by session_id so it overwrites on each turn
+    rather than accumulating files. The full save_session() call at evaluation
+    end writes a separate timestamped file.
+
+    Silently ignores write errors — partial saves are best-effort.
+    """
+    logs_dir = SESSION_LOG_DIR
+    filename = logs_dir / f"partial_{session_id}.json"
+
+    payload = {
+        "partial": True,
+        "session_id": session_id,
+        "consultant_email": consultant_email,
+        "scenario": scenario_title,
+        "transcript": _serialize_messages(transcript),
+        "revealed_items": _serialize_revealed_items(revealed_items),
+    }
+    content = json.dumps(payload, indent=2, ensure_ascii=False)
+
+    try:
+        if str(logs_dir).startswith("/Volumes/"):
+            host = _get_workspace_host()
+            token = os.environ.get("DATABRICKS_TOKEN", "")
+            _files_api_write(filename, content, host, token)
+        else:
+            logs_dir.mkdir(parents=True, exist_ok=True)
+            filename.write_text(content)
+    except Exception:
+        pass  # partial saves are best-effort
+
+
 def save_session(
     scenario_title: str,
     transcript: list,

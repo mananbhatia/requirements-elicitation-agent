@@ -41,9 +41,10 @@ reason about whether a question specifically targets an item, not just whether i
 adjacent. This is a semantic judgment that requires understanding both the question's intent and
 the item's content — well-suited to LLMs.
 
-GPT-OSS-120B is used here (not Claude) because retrieval is a high-frequency call on the
-critical path and needs medium reasoning effort, not creative generation. Using the same model
-as the client would be redundant and slower.
+Claude Sonnet 4.6 is used for retrieval (temp 0.0). It runs on every consultant turn and needs
+analytical precision, not creative generation. Haiku would be too weak for the semantic directness
+judgment; Opus would be over-specified and slow. Sonnet at temp 0.0 gives deterministic, accurate
+matching at acceptable latency.
 
 ## Why LangGraph, not a plain Python loop
 
@@ -120,3 +121,36 @@ Temperature controls creativity vs. consistency:
   but anchored to the consultant's intent.
 - **Report generation (temp 0.3)**: structured synthesis of evidence — moderate creativity
   for readable prose, low enough to stay grounded in the data.
+
+## Why multi-persona scenario files
+
+The original design had one scenario file per persona. This means a consultant always practices
+with the same person — they can't experience how the same engagement situation looks through
+the lens of a manager vs. a technical architect. The multi-persona format puts both personas in
+a single file with a shared briefing and taxonomy, letting the consultant choose who to interview
+before the session starts.
+
+The shared header matters architecturally: the briefing and topic taxonomy are the same for
+both personas — they describe the engagement, not the person. Per-persona blocks differ only in
+character_text (how they speak, what they know, their role) and discovery items (what they've
+observed from their particular vantage point). The scenario generator constructs these separately
+per persona, then merges them at Phase 6 combine.
+
+## Why a pipeline for scenario construction, not manual authoring
+
+The original scenario (`waste_management_client.md`) was hand-written. This doesn't scale.
+Writing a realistic persona requires: extracting facts from engagement notes, deciding what the
+persona knows vs what must be discovered, rewriting technical findings into client-language items,
+generating a coherent narrative that doesn't create inference paths, validating that narrative,
+and assembling the final file. That's 6–8 sequential judgement-heavy tasks — exactly the kind of
+work LLMs can do well when given structured prompts with the right constraints.
+
+The pipeline is human-in-the-loop by design. Each phase produces output for human review before
+the next phase runs. The LLM does the lifting; the domain expert validates realism, catches
+classification errors, and enriches generated content. This is framed in the thesis as
+"AI-assisted scenario construction."
+
+The phase separation also enforces design principles: Phase 3's classification prompt encodes
+the aha-test and natural-disclosure test; Phase 5's validation prompt encodes the inference-path
+constraint. Running all phases in a single call would mix these concerns and make the output
+harder to inspect and correct.
