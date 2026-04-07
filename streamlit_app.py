@@ -432,12 +432,6 @@ def _run_evaluation():
         )
         if annotation is not None:
             annotation["question"] = content
-            turn_type = annotation.get("turn_type", "question")
-            if turn_type not in ("explanation", "acknowledgment"):
-                annotation["information_elicited"] = any(
-                    item.get("unlocked_at_turn") == turn_index
-                    for item in st.session_state.revealed_items
-                )
             annotations.append(annotation)
 
         pct = int((turn_index / n_turns) * 33) if n_turns else 33
@@ -496,18 +490,14 @@ def _get_client_response(turn_index: int) -> str:
     return ""
 
 
-def _turn_icon(turn_type: str, well_formed, info_elicited) -> str:
+def _turn_icon(turn_type: str, well_formed) -> str:
     if turn_type in ("explanation", "acknowledgment"):
         return "➖"
     if turn_type == "solution_proposal":
-        return "✅" if info_elicited else "⚠️"
+        return "✅"
     if turn_type == "unproductive_statement":
         return "🔴"
-    if well_formed and info_elicited:
-        return "✅"
-    if well_formed and not info_elicited:
-        return "⚠️"
-    return "🔴"
+    return "✅" if well_formed else "🔴"
 
 
 # ---------------------------------------------------------------------------
@@ -525,30 +515,44 @@ def _generate_report_pdf(eval_state: dict, scenario_title: str, persona_name: st
     annotations = eval_state.get("turn_annotations", [])
     alternatives = {a["turn_index"]: a for a in eval_state.get("simulated_alternatives", [])}
 
+    def _ps(text: str) -> str:
+        """Replace Unicode characters unsupported by Helvetica (Latin-1 only) with ASCII equivalents."""
+        return (
+            text
+            .replace("\u2014", "-")   # em dash
+            .replace("\u2013", "-")   # en dash
+            .replace("\u2018", "'")   # left single quote
+            .replace("\u2019", "'")   # right single quote
+            .replace("\u201c", '"')   # left double quote
+            .replace("\u201d", '"')   # right double quote
+            .replace("\u2026", "...")  # ellipsis
+            .replace("\u00a0", " ")   # non-breaking space
+        )
+
     pdf = FPDF()
     pdf.set_margins(20, 20, 20)
     pdf.add_page()
 
     def h1(text):
         pdf.set_font("Helvetica", "B", 15)
-        pdf.cell(0, 9, text, ln=True)
+        pdf.cell(0, 9, _ps(text), ln=True)
         pdf.ln(1)
 
     def h2(text):
         pdf.set_font("Helvetica", "B", 12)
-        pdf.cell(0, 8, text, ln=True)
+        pdf.cell(0, 8, _ps(text), ln=True)
         pdf.ln(1)
 
     def body(text, indent=0):
         pdf.set_font("Helvetica", "", 10)
         pdf.set_x(pdf.get_x() + indent)
-        pdf.multi_cell(0, 6, text)
+        pdf.multi_cell(0, 6, _ps(text))
 
     def label_value(label, value):
         pdf.set_font("Helvetica", "B", 10)
-        pdf.write(6, f"{label}: ")
+        pdf.write(6, _ps(f"{label}: "))
         pdf.set_font("Helvetica", "", 10)
-        pdf.write(6, value)
+        pdf.write(6, _ps(value))
         pdf.ln(6)
 
     def divider():
@@ -562,8 +566,8 @@ def _generate_report_pdf(eval_state: dict, scenario_title: str, persona_name: st
     pdf.set_font("Helvetica", "", 10)
     subtitle = scenario_title
     if persona_name:
-        subtitle += f" — {persona_name}"
-    pdf.cell(0, 6, subtitle, ln=True)
+        subtitle += f" - {persona_name}"
+    pdf.cell(0, 6, _ps(subtitle), ln=True)
     pdf.cell(0, 6, datetime.now().strftime("Generated %d %b %Y, %H:%M"), ln=True)
     divider()
 
@@ -571,14 +575,11 @@ def _generate_report_pdf(eval_state: dict, scenario_title: str, persona_name: st
     h2("Performance Summary")
     q_total = stats.get("questions_total", 0)
     q_well = stats.get("questions_well_formed", 0)
-    q_info = stats.get("questions_information_elicited", 0)
     n_sub = coverage.get("subtopics_covered", 0)
     n_sub_total = coverage.get("subtopics_total", 0)
     well_pct = int(q_well / q_total * 100) if q_total else 0
-    info_pct = int(q_info / q_total * 100) if q_total else 0
     label_value("Questions asked", str(q_total))
     label_value("Well-formed", f"{q_well} ({well_pct}%)")
-    label_value("Information elicited", f"{q_info} ({info_pct}%)")
     label_value("Subtopics covered", f"{n_sub} / {n_sub_total}")
     divider()
 
@@ -587,7 +588,7 @@ def _generate_report_pdf(eval_state: dict, scenario_title: str, persona_name: st
         summary = report.get("summary", "")
         if summary:
             pdf.set_font("Helvetica", "I", 10)
-            pdf.multi_cell(0, 6, summary)
+            pdf.multi_cell(0, 6, _ps(summary))
             pdf.ln(4)
 
         for section, label in [("continue", "Continue"), ("stop", "Stop"), ("start", "Start")]:
@@ -608,27 +609,25 @@ def _generate_report_pdf(eval_state: dict, scenario_title: str, persona_name: st
         question = ann.get("question", "")
         turn_type = ann.get("turn_type", "question")
         well_formed = ann.get("is_well_formed")
-        info_elicited = ann.get("information_elicited")
         mistakes = ann.get("mistakes", [])
         alt = alternatives.get(idx)
 
         wf = "Yes" if well_formed is True else ("No" if well_formed is False else "N/A")
-        ie = "Yes" if info_elicited is True else ("No" if info_elicited is False else "N/A")
 
         pdf.set_font("Helvetica", "B", 10)
-        pdf.cell(0, 7, f"Turn {idx} [{turn_type}]  |  Well-formed: {wf}  |  Info elicited: {ie}", ln=True)
+        pdf.cell(0, 7, f"Turn {idx} [{turn_type}]  |  Well-formed: {wf}", ln=True)
 
         pdf.set_font("Helvetica", "", 9)
-        pdf.multi_cell(0, 5, f"You: {question}")
+        pdf.multi_cell(0, 5, _ps(f"You: {question}"))
 
         if mistakes:
             pdf.set_font("Helvetica", "I", 9)
             m = mistakes[0]
-            pdf.multi_cell(0, 5, f"Mistake: {m.get('mistake_type', '')} — {m.get('explanation', '')}")
+            pdf.multi_cell(0, 5, _ps(f"Mistake: {m.get('mistake_type', '')} - {m.get('explanation', '')}"))
 
         if alt and alt.get("improvement_verdict"):
             pdf.set_font("Helvetica", "I", 9)
-            pdf.multi_cell(0, 5, f"Verdict: {alt['improvement_verdict']}")
+            pdf.multi_cell(0, 5, _ps(f"Verdict: {alt['improvement_verdict']}"))
 
         pdf.ln(3)
 
@@ -653,17 +652,14 @@ def _render_evaluation():
     # -------------------------------------------------------------------------
     q_total = stats.get("questions_total", 0)
     q_well = stats.get("questions_well_formed", 0)
-    q_info = stats.get("questions_information_elicited", 0)
     n_sub = coverage.get("subtopics_covered", 0)
     n_sub_total = coverage.get("subtopics_total", 0)
     well_pct = int(q_well / q_total * 100) if q_total else 0
-    info_pct = int(q_info / q_total * 100) if q_total else 0
 
-    c1, c2, c3, c4 = st.columns(4)
+    c1, c2, c3 = st.columns(3)
     c1.metric("Questions asked", q_total)
     c2.metric("Well-formed", f"{q_well} ({well_pct}%)")
-    c3.metric("Info elicited", f"{q_info} ({info_pct}%)")
-    c4.metric("Subtopics covered", f"{n_sub} / {n_sub_total}")
+    c3.metric("Subtopics covered", f"{n_sub} / {n_sub_total}")
 
     # Coverage grid — 2 columns, compact inline subtopics
     if coverage.get("parent_to_subtopics"):
@@ -735,17 +731,13 @@ def _render_evaluation():
     def _esc(text: str) -> str:
         return text.replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br>")
 
-    def _render_comparison_table(question, danny_response, alt, well_formed, info_elicited):
+    def _render_comparison_table(question, danny_response, alt, well_formed):
         wf_icon = "✅" if well_formed is True else ("🔴" if well_formed is False else "—")
-        ie_icon = "✅" if info_elicited is True else ("⚠️" if info_elicited is False else "—")
         wf_label = "Yes" if well_formed is True else ("No" if well_formed is False else "N/A")
-        ie_label = "Yes" if info_elicited is True else ("No" if info_elicited is False else "N/A")
-        orig_badges = f"Well-formed: {wf_icon} {wf_label} &nbsp;&nbsp; Info elicited: {ie_icon} {ie_label}"
+        orig_badges = f"Well-formed: {wf_icon} {wf_label}"
 
         alt_wf_badge = "✅" if alt.get("alt_is_well_formed", True) else "🔴"
-        alt_ie_badge = "✅" if alt.get("alt_information_elicited", True) else "⚠️"
         alt_wf_label = "Yes" if alt.get("alt_is_well_formed", True) else "No"
-        alt_ie_label = "Yes" if alt.get("alt_information_elicited", True) else "No"
         verdict = alt.get("improvement_verdict", "")
         st.markdown(f"""
 <table style="width:100%;border-collapse:collapse;font-size:0.88em;margin-top:4px;">
@@ -758,7 +750,7 @@ def _render_evaluation():
   <tbody>
     <tr>
       <td style="border:1px solid #ddd;padding:5px 6px;vertical-align:top;"><strong>Question</strong><br>{_esc(question)}<br><small>{orig_badges}</small></td>
-      <td style="border:1px solid #ddd;padding:5px 6px;vertical-align:top;"><strong>Question</strong><br>{_esc(alt['alternative_question'])}<br><small>Well-formed: {alt_wf_badge} {alt_wf_label} &nbsp;&nbsp; Info elicited: {alt_ie_badge} {alt_ie_label}</small></td>
+      <td style="border:1px solid #ddd;padding:5px 6px;vertical-align:top;"><strong>Question</strong><br>{_esc(alt['alternative_question'])}<br><small>Well-formed: {alt_wf_badge} {alt_wf_label}</small></td>
     </tr>
     <tr>
       <td style="border:1px solid #ddd;padding:5px 6px;vertical-align:top;"><strong>Client's response</strong><br>{_esc(danny_response)}</td>
@@ -779,19 +771,16 @@ def _render_evaluation():
             question = ann.get("question", "")
             turn_type = ann.get("turn_type", "question")
             well_formed = ann.get("is_well_formed")
-            info_elicited = ann.get("information_elicited")
             mistakes = ann.get("mistakes", [])
-            icon = _turn_icon(turn_type, well_formed, info_elicited)
+            icon = _turn_icon(turn_type, well_formed)
             danny_response = _get_client_response(idx)
             alt = alternatives.get(idx)
 
             q_short = (question[:80] + "…") if len(question) > 80 else question
             with st.expander(f"{icon} Turn {idx} [{turn_type}]: {q_short}", expanded=False):
                 wf_icon = "✅" if well_formed is True else ("🔴" if well_formed is False else "—")
-                ie_icon = "✅" if info_elicited is True else ("⚠️" if info_elicited is False else "—")
                 wf_label = "Yes" if well_formed is True else ("No" if well_formed is False else "N/A")
-                ie_label = "Yes" if info_elicited is True else ("No" if info_elicited is False else "N/A")
-                badges_md = f"**Well-formed:** {wf_icon} {wf_label} &nbsp;&nbsp;&nbsp; **Info elicited:** {ie_icon} {ie_label}"
+                badges_md = f"**Well-formed:** {wf_icon} {wf_label}"
 
                 if turn_type in ("acknowledgment", "explanation"):
                     st.caption(f"Not evaluated — {turn_type}")
@@ -800,25 +789,17 @@ def _render_evaluation():
                         st.markdown(f"**Client:** {danny_response}")
 
                 elif turn_type == "solution_proposal":
-                    if info_elicited is True:
-                        st.markdown(badges_md, unsafe_allow_html=True)
-                        st.markdown(f"**Consultant:** {question}")
-                        if danny_response:
-                            st.markdown(f"**Client:** {danny_response}")
-                    elif alt:
-                        _render_comparison_table(question, danny_response, alt, well_formed, info_elicited)
-                    else:
-                        st.markdown(badges_md, unsafe_allow_html=True)
-                        st.markdown(f"**Consultant:** {question}")
-                        if danny_response:
-                            st.markdown(f"**Client:** {danny_response}")
+                    st.markdown(badges_md, unsafe_allow_html=True)
+                    st.markdown(f"**Consultant:** {question}")
+                    if danny_response:
+                        st.markdown(f"**Client:** {danny_response}")
 
                 elif turn_type == "unproductive_statement":
                     if mistakes:
                         expl = mistakes[0].get("explanation", "")
                         st.markdown(f"**Mistake:** `{mistakes[0]['mistake_type']}` — {expl}")
                     if alt:
-                        _render_comparison_table(question, danny_response, alt, well_formed, info_elicited)
+                        _render_comparison_table(question, danny_response, alt, well_formed)
                     else:
                         st.markdown(badges_md, unsafe_allow_html=True)
                         st.markdown(f"**Consultant:** {question}")
@@ -827,8 +808,7 @@ def _render_evaluation():
 
                 else:
                     # question turn
-                    is_clean = well_formed is True and info_elicited is True
-                    if is_clean:
+                    if well_formed is True:
                         st.markdown(badges_md, unsafe_allow_html=True)
                         st.markdown(f"**Consultant:** {question}")
                         if danny_response:
@@ -837,10 +817,8 @@ def _render_evaluation():
                         if mistakes:
                             expl = mistakes[0].get("explanation", "")
                             st.markdown(f"**Mistake:** `{mistakes[0]['mistake_type']}` — {expl}")
-                        elif info_elicited is False:
-                            st.caption("Well-formed — did not elicit new information.")
                         if alt:
-                            _render_comparison_table(question, danny_response, alt, well_formed, info_elicited)
+                            _render_comparison_table(question, danny_response, alt, well_formed)
                         else:
                             st.markdown(badges_md, unsafe_allow_html=True)
                             st.markdown(f"**Consultant:** {question}")

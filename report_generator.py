@@ -67,7 +67,7 @@ For each point: name the technique, explain why it worked, and reference what in
 it unlocked. "Asked good questions" is not a technique — what was the underlying skill? \
 Did they build on the client's previous answer to go deeper? Did they rephrase concepts in \
 the client's language to draw out concrete details? Each point should be 1-2 sentences. \
-The evidence base is turns where is_well_formed=true AND information_elicited=true. \
+The evidence base is turns where is_well_formed=true. \
 If only one genuine technique stands out, write one point. If none stand out, write an empty list.
 
 **STOP — What recurring habit hurt the consultant?**
@@ -75,9 +75,9 @@ Identify 1-2 behavior patterns that caused repeated problems. For each point: na
 and describe its cumulative cost to the interview. Do not describe what the simulated \
 alternative produced — that detail is visible in the turn view. A single isolated mistake is \
 not a pattern — look for the same underlying problem appearing more than once. Each point \
-should be 1-2 sentences. Prioritise turns where alt_information_elicited=true — these are the \
-clearest evidence that the habit had real cost. If only one pattern recurred, write one point. \
-If none recurred, write an empty list.
+should be 1-2 sentences. Prioritise turns where the alternative produced a clearly better \
+client response — these are the clearest evidence that the habit had real cost. \
+If only one pattern recurred, write one point. If none recurred, write an empty list.
 
 **START — What should the consultant explore next time?**
 Identify 1-2 specific areas the consultant left unexplored. For each point: name the missed \
@@ -137,11 +137,10 @@ def _format_annotations(annotations: list) -> str:
         question = ann.get("question", "")
         mistakes = ann.get("mistakes", [])
         well_formed = ann.get("is_well_formed", True)
-        info_elicited = ann.get("information_elicited", True)
 
         lines = [
             f"Turn {idx}: \"{question}\"",
-            f"Well-formed: {'yes' if well_formed else 'no'} | Information elicited: {'yes' if info_elicited else 'no'}",
+            f"Well-formed: {'yes' if well_formed else 'no'}",
         ]
         if mistakes:
             lines.append("Mistakes:")
@@ -155,7 +154,7 @@ def _format_annotations(annotations: list) -> str:
 
 def _format_alternatives(alternatives: list) -> str:
     if not alternatives:
-        return "(no simulated alternatives — all evaluated turns were well-formed and elicited information)"
+        return "(no simulated alternatives — all evaluated turns were well-formed)"
     parts = []
     for alt in alternatives:
         idx = alt.get("turn_index", "?")
@@ -164,7 +163,6 @@ def _format_alternatives(alternatives: list) -> str:
         alternative = alt.get("alternative_question", "")
         simulated = alt.get("simulated_response", "")
         alt_well_formed = alt.get("alt_is_well_formed", True)
-        alt_info_elicited = alt.get("alt_information_elicited", True)
         verdict = alt.get("improvement_verdict", "")
 
         parts.append(
@@ -174,7 +172,6 @@ def _format_alternatives(alternatives: list) -> str:
             f"  Alternative question:           \"{alternative}\"\n"
             f"  Alternative well-formed:        {'yes' if alt_well_formed else 'no'}\n"
             f"  Simulated client response:      {simulated}\n"
-            f"  Alternative info elicited:      {'yes' if alt_info_elicited else 'no'}\n"
             f"  Improvement verdict:            {verdict}"
         )
     return "\n\n".join(parts)
@@ -282,14 +279,6 @@ def _compute_stats(annotations: list) -> dict:
     q_total = len(questions)
     q_with_mistakes = sum(1 for a in questions if a.get("is_well_formed") is False)
     q_no_mistakes = q_total - q_with_mistakes
-    q_elicited = sum(1 for a in questions if a.get("information_elicited") is True)
-    q_not_elicited = q_total - q_elicited
-    q_well_formed_no_info = sum(
-        1 for a in questions
-        if a.get("is_well_formed") is True and a.get("information_elicited") is False
-    )
-    sp_elicited = sum(1 for a in proposals if a.get("information_elicited") is True)
-    sp_not_elicited = len(proposals) - sp_elicited
 
     mistake_counts: dict[str, int] = {}
     for ann in questions:
@@ -302,12 +291,7 @@ def _compute_stats(annotations: list) -> dict:
         "questions_total": q_total,
         "questions_well_formed": q_no_mistakes,
         "questions_with_mistakes": q_with_mistakes,
-        "questions_information_elicited": q_elicited,
-        "questions_no_information_elicited": q_not_elicited,
-        "questions_well_formed_no_info": q_well_formed_no_info,
         "solution_proposals_total": len(proposals),
-        "solution_proposals_information_elicited": sp_elicited,
-        "solution_proposals_no_information_elicited": sp_not_elicited,
         "unproductive_statements": len(unproductive),
         "explanations_acknowledgments": len(skipped),
         "mistake_type_frequencies": dict(sorted(mistake_counts.items(), key=lambda x: -x[1])),
@@ -326,9 +310,6 @@ def _format_stats_text(stats: dict) -> str:
         "Question quality:",
         f"  Well-formed (no mistakes): {stats['questions_well_formed']}",
         f"  With mistakes: {stats['questions_with_mistakes']}",
-        f"  Elicited information: {stats['questions_information_elicited']}",
-        f"  Did not elicit information: {stats['questions_no_information_elicited']}",
-        f"  Well-formed but no information elicited: {stats['questions_well_formed_no_info']}",
     ]
     if stats.get("mistake_type_frequencies"):
         freq = ", ".join(
@@ -338,13 +319,6 @@ def _format_stats_text(stats: dict) -> str:
         lines.append(f"  Mistake type frequencies: {freq}")
     else:
         lines.append("  Mistake type frequencies: (none)")
-    if stats.get("solution_proposals_total", 0) > 0:
-        lines += [
-            "",
-            "Solution proposals:",
-            f"  Elicited information: {stats['solution_proposals_information_elicited']}",
-            f"  Did not elicit information: {stats['solution_proposals_no_information_elicited']}",
-        ]
     if stats.get("unproductive_statements", 0) > 0:
         lines.append(f"\nUnproductive statements: {stats['unproductive_statements']} (missed opportunities)")
     return "\n".join(lines)

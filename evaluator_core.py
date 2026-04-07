@@ -285,13 +285,10 @@ def evaluate_turn_routed(
 
     Routes:
       question             → evaluate_turn() against 14 mistake types; is_well_formed set by LLM
-      solution_proposal    → is_well_formed=None; information_elicited set by caller (gate-based)
-      explanation          → skipped; is_well_formed=None, information_elicited=None
-      acknowledgment       → skipped; is_well_formed=None, information_elicited=None
-      unproductive_statement → is_well_formed=False; information_elicited set by caller (gate-based)
-
-    information_elicited is always None here — callers (turn_evaluator, streamlit_app) override
-    it with the gate-based value derived from revealed_items[unlocked_at_turn == turn_index].
+      solution_proposal    → is_well_formed=None
+      explanation          → skipped; is_well_formed=None
+      acknowledgment       → skipped; is_well_formed=None
+      unproductive_statement → is_well_formed=False
 
     Returns an annotation dict with turn_type set, or None on classification failure.
     """
@@ -305,7 +302,6 @@ def evaluate_turn_routed(
         if annotation is None:
             return None
         annotation["turn_type"] = "question"
-        annotation["information_elicited"] = None  # overridden by caller
         return annotation
 
     if turn_type == "solution_proposal":
@@ -314,7 +310,6 @@ def evaluate_turn_routed(
             "turn_type": "solution_proposal",
             "mistakes": [],
             "is_well_formed": None,
-            "information_elicited": None,  # overridden by caller
         }
 
     if turn_type == "unproductive_statement":
@@ -323,7 +318,6 @@ def evaluate_turn_routed(
             "turn_type": "unproductive_statement",
             "mistakes": [{"mistake_type": "Unproductive statement", "explanation": reasoning}],
             "is_well_formed": False,
-            "information_elicited": None,  # overridden by caller
         }
 
     # explanation or acknowledgment — skip evaluation entirely
@@ -332,5 +326,4 @@ def evaluate_turn_routed(
         "turn_type": turn_type,
         "mistakes": [],
         "is_well_formed": None,
-        "information_elicited": None,
     }

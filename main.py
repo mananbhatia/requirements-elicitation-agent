@@ -71,10 +71,9 @@ def _run_evaluation(messages, revealed_items, scenario, graph, scenario_title):
         question = ann.get("question", "")
         mistakes = ann.get("mistakes", [])
         well_formed = ann.get("is_well_formed", True)
-        info_elicited = ann.get("information_elicited", True)
 
         print(f"\nTurn {idx}: {question!r}")
-        print(f"Well-formed: {'yes' if well_formed else 'no'} | Information elicited: {'yes' if info_elicited else 'no'}")
+        print(f"Well-formed: {'yes' if well_formed else 'no'}")
         if mistakes:
             for m in mistakes:
                 print(f"  - [{m['mistake_type']}] {m['explanation']}")

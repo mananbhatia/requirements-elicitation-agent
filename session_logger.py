@@ -66,12 +66,6 @@ def _compute_summary_stats(annotations: list) -> dict:
     q_total = len(questions)
     q_with_mistakes = sum(1 for a in questions if a.get("is_well_formed") is False)
     q_well_formed = q_total - q_with_mistakes
-    q_elicited = sum(1 for a in questions if a.get("information_elicited") is True)
-    q_not_elicited = q_total - q_elicited
-    q_well_formed_no_info = sum(
-        1 for a in questions
-        if a.get("is_well_formed") is True and a.get("information_elicited") is False
-    )
 
     mistake_counts: dict[str, int] = {}
     for ann in questions:
@@ -85,9 +79,6 @@ def _compute_summary_stats(annotations: list) -> dict:
         "questions_total": q_total,
         "questions_well_formed": q_well_formed,
         "questions_with_mistakes": q_with_mistakes,
-        "questions_information_elicited": q_elicited,
-        "questions_no_information_elicited": q_not_elicited,
-        "questions_well_formed_no_info": q_well_formed_no_info,
         "mistake_type_frequencies": dict(
             sorted(mistake_counts.items(), key=lambda x: -x[1])
         ),

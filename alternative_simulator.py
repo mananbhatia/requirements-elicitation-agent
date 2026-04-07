@@ -1,14 +1,13 @@
 """
 Alternative simulator node — node 2 of the evaluation pipeline.
 
-For each turn where is_well_formed is false OR information_elicited is false:
+For each turn where is_well_formed is false:
   Stage A — Generate a better question using a restricted transcript
              (everything BEFORE the original question, no client response to it).
   Stage B — Simulate the client's response by invoking the conversation graph
              with the alternative question in place of the original.
   Stage C — Evaluate the alternative question and compare both response pairs.
-             Produces alt_is_well_formed, alt_information_elicited, and a
-             one-sentence improvement_verdict.
+             Produces alt_is_well_formed and a one-sentence improvement_verdict.
 
 Returns simulated_alternatives — list of dicts:
   {
@@ -17,8 +16,8 @@ Returns simulated_alternatives — list of dicts:
     "original_response": str,
     "alternative_question": str,
     "simulated_response": str,
+    "alt_revealed_items": list,
     "alt_is_well_formed": bool,
-    "alt_information_elicited": bool,
     "improvement_verdict": str
   }
 """
@@ -163,9 +162,8 @@ def build_alternative_simulator(conversation_graph):
 
         Stage C — Evaluate the alternative and compare both pairs.
             Reuses the Stage A pre-check annotation (no extra LLM call) for alt_is_well_formed.
-            Computes alt_information_elicited by comparing items newly revealed in simulation
-            against everything revealed through the original turn — items the alternative
-            uniquely unlocked that the original question at this turn did not get.
+            Tracks alt_revealed_items (items uniquely unlocked by the alternative that the
+            original question did not get) for logging purposes.
             A separate verdict call (Claude Sonnet 4.6) produces a one-sentence comparison
             of what changed between the original and alternative question/response pairs.
         """
@@ -302,7 +300,7 @@ def build_alternative_simulator(conversation_graph):
                 continue
 
             # Stage C: reuse the pre-check annotation for well-formedness (already evaluated).
-            # Compute gate-based information_elicited: items the alternative uniquely unlocked
+            # Compute alt_revealed_items: items the alternative uniquely unlocked
             # that the original question at this turn also didn't get.
             # Exclude prior_revealed (already known before this turn) AND items the original
             # question itself unlocked at turn_index — otherwise original-turn items leak in.
@@ -314,9 +312,8 @@ def build_alternative_simulator(conversation_graph):
                 item for item in sim_state.get("revealed_items", [])
                 if item["id"] not in original_revealed_through_turn
             ]
-            alt_information_elicited = len(newly_revealed_in_sim) > 0
             alt_is_well_formed = pre_annotation.get("is_well_formed", True) if pre_annotation else True
-            print(f"[SIM]   Alt well-formed: {alt_is_well_formed} | Alt info elicited: {alt_information_elicited}")
+            print(f"[SIM]   Alt well-formed: {alt_is_well_formed} | Alt revealed items: {len(newly_revealed_in_sim)}")
 
             verdict_prompt = _VERDICT_PROMPT.format(
                 original_question=original_question,
@@ -342,7 +339,6 @@ def build_alternative_simulator(conversation_graph):
                 "simulated_response": simulated_response,
                 "alt_revealed_items": newly_revealed_in_sim,
                 "alt_is_well_formed": alt_is_well_formed,
-                "alt_information_elicited": alt_information_elicited,
                 "improvement_verdict": improvement_verdict,
             })
 

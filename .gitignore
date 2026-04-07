@@ -6,6 +6,5 @@ __pycache__/
 **/.DS_Store
 .env.example
 logs/
-docs/scenarios/
 scenario_generator/scenario_workspace/
 scenario_generator/notes/

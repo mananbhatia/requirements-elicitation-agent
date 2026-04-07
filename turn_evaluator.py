@@ -5,10 +5,10 @@ Iterates through the interview transcript, identifies every consultant turn,
 classifies it by type, then evaluates it accordingly:
 
   question             → evaluated against the 14 mistake types
-  solution_proposal    → information_elicited checked; is_well_formed not applicable
+  solution_proposal    → is_well_formed not applicable; no mistake evaluation
   explanation          → skipped (consultant responding to client clarification request)
   acknowledgment       → skipped (filler with no discovery value)
-  unproductive_statement → flagged; is_well_formed=False, information_elicited=False
+  unproductive_statement → flagged; is_well_formed=False
 
 All turns are included in turn_annotations regardless of type.
 Downstream nodes use the turn_type field to route appropriately.
@@ -19,8 +19,7 @@ Annotation dict shape:
     "turn_type": "question" | "solution_proposal" | "explanation" | "acknowledgment" | "unproductive_statement",
     "question": str,           # the consultant's message text
     "mistakes": list,          # populated for questions and unproductive_statements
-    "is_well_formed": bool | None,      # None for non-question types
-    "information_elicited": bool | None # None for explanation/acknowledgment
+    "is_well_formed": bool | None  # None for non-question types
   }
 """
 
@@ -32,7 +31,6 @@ from evaluator_core import format_transcript, format_transcript_up_to, evaluate_
 
 def turn_evaluator(state: EvaluationState) -> dict:
     messages = state["transcript"]
-    revealed_items = state.get("revealed_items", [])
     maturity = state.get("maturity", "")
     briefing = state.get("briefing", "")
     transcript_text = format_transcript(messages)
@@ -68,18 +66,8 @@ def turn_evaluator(state: EvaluationState) -> dict:
 
         annotation["question"] = content
 
-        # Gate-based information_elicited: true iff this turn unlocked at least one item.
         turn_type = annotation.get("turn_type", "question")
-        if turn_type not in ("explanation", "acknowledgment"):
-            info_elicited = any(
-                item.get("unlocked_at_turn") == turn_index
-                for item in revealed_items
-            )
-            annotation["information_elicited"] = info_elicited
-        # explanation/acknowledgment stay None (already set by evaluate_turn_routed)
-
         wf = annotation.get("is_well_formed")
-        ie = annotation.get("information_elicited")
         mistakes = annotation.get("mistakes", [])
 
         print(f"[EVAL]   Type: {turn_type}")
@@ -87,7 +75,7 @@ def turn_evaluator(state: EvaluationState) -> dict:
             print(f"[EVAL]   Mistakes: {[m['mistake_type'] for m in mistakes]}")
         else:
             print(f"[EVAL]   Mistakes: none")
-        print(f"[EVAL]   Well-formed: {wf} | Information elicited: {ie}")
+        print(f"[EVAL]   Well-formed: {wf}")
 
         annotations.append(annotation)
 
