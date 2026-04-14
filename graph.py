@@ -1,21 +1,32 @@
 """
-LangGraph Concept: THE GRAPH
-=============================
-build_graph() now accepts a Scenario object and wires it into the nodes via closures.
-Swapping scenarios requires no code changes — just pass a different Scenario.
+LangGraph conversation graph.
 
-Flow each turn:
-  START → retrieval_node → client_node → END
+Build the embedding indices once here so they are reused for all turns in the session.
+
+Usage:
+    from knowledge import load_scenario, build_retrieval_index
+    from graph import build_graph
+
+    scenario = load_scenario("docs/scenarios/waste_management.md", persona="Danny")
+    graph = build_graph(scenario)
+    result = graph.invoke({"messages": [...], "revealed_items": [], "retrieval_traces": []})
 """
 
 from langgraph.graph import StateGraph, START, END
 from state import ConversationState
-from knowledge import Scenario
+from knowledge import Scenario, build_retrieval_index
 from client import build_nodes
 
 
 def build_graph(scenario: Scenario):
-    retrieval_node, client_node = build_nodes(scenario)
+    """
+    Compile the conversation graph for a loaded scenario.
+
+    Builds embedding indices from scenario.character_knowledge and scenario.discovery_items.
+    Indices are built once and shared across all turns via closure.
+    """
+    char_index, disc_index = build_retrieval_index(scenario)
+    retrieval_node, client_node = build_nodes(scenario, char_index, disc_index)
 
     builder = StateGraph(ConversationState)
     builder.add_node("retrieval", retrieval_node)

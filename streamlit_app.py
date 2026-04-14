@@ -126,6 +126,8 @@ def _init_session():
         st.session_state.lc_messages = []   # LangChain message objects for graph
     if "revealed_items" not in st.session_state:
         st.session_state.revealed_items = []
+    if "retrieval_traces" not in st.session_state:
+        st.session_state.retrieval_traces = []
     if "eval_state" not in st.session_state:
         st.session_state.eval_state = None
     if "log_path" not in st.session_state:
@@ -151,7 +153,7 @@ def _init_session():
         opening_prompt = HumanMessage(
             content="[Start of interview. Introduce yourself and state your opening requirement in 2-3 sentences. Be natural and conversational.]"
         )
-        state = graph.invoke({"messages": [opening_prompt], "revealed_items": []})
+        state = graph.invoke({"messages": [opening_prompt], "revealed_items": [], "retrieval_traces": []})
         opening = state["messages"][-1].content
         # Drop the hidden prompt; keep only the client's opening
         st.session_state.lc_messages = [state["messages"][-1]]
@@ -160,7 +162,7 @@ def _init_session():
 
 
 def _reset_session():
-    for key in ["phase", "messages", "lc_messages", "revealed_items",
+    for key in ["phase", "messages", "lc_messages", "revealed_items", "retrieval_traces",
                 "eval_state", "log_path", "log_content", "selected_persona", "scenario_path"]:
         if key in st.session_state:
             del st.session_state[key]
@@ -178,11 +180,10 @@ def _render_sidebar():
     persona = st.session_state.get("selected_persona")
     scenario = get_scenario(st.session_state.scenario_path, persona)
     with st.sidebar:
-        st.markdown("**Revodata** · Consultant Interview Training")
         st.caption("🚧 Alpha — feedback welcome.")
 
         if st.session_state.phase == "conversation":
-            st.caption("When done, click **End Interview** to run your evaluation. Don't forget — logs are only captured after evaluation.")
+            st.caption("When done, click **End Interview** to run your evaluation. Don't forget 📋")
             if st.button("End Interview", type="primary", use_container_width=True):
                 st.session_state.phase = "evaluating"
                 st.rerun()
@@ -190,11 +191,8 @@ def _render_sidebar():
             if st.button("Start New Interview", type="secondary", use_container_width=True):
                 _reset_session()
 
-        st.divider()
-
         # Briefing
-        st.markdown("**Consultant Briefing — read before interview**")
-        st.markdown("")
+        st.markdown("#### Consultant Briefing")
         if scenario.briefing:
             for line in scenario.briefing.splitlines():
                 line = line.strip()
@@ -212,8 +210,7 @@ def _render_sidebar():
 
         # Topic taxonomy
         if scenario.topic_taxonomy:
-            st.divider()
-            st.markdown("**Topics to cover**")
+            st.markdown("#### Topics to cover")
             taxonomy = scenario.topic_taxonomy
             top_level = {k: v for k, v in taxonomy.items() if "/" not in k}
             for code, display in top_level.items():
@@ -291,8 +288,8 @@ h2 { margin-bottom: 0.25rem !important; }
             if key not in rendered:
                 st.markdown(f"**{label}:** {value}" if value else f"**{label}**")
 
-    st.markdown("### Choose a persona to interview")
-    st.caption("Each persona has a different role and level of technical knowledge.")
+    st.markdown("### Choose who to interview first")
+    st.caption("Recommended: start with Danny for business/context discovery. Use Sajith for technical deep dives.")
 
     _MATURITY_HINTS = {
         "LOW": "Non-technical — knows symptoms, speaks in business terms",
@@ -350,6 +347,7 @@ def _render_conversation():
         client_response = state["messages"][-1].content
         st.session_state.lc_messages = state["messages"]
         st.session_state.revealed_items = state.get("revealed_items", [])
+        st.session_state.retrieval_traces += state.get("retrieval_traces", [])
         st.session_state.messages.append({"role": "client", "content": client_response})
 
         with st.chat_message("client", avatar="👤"):
@@ -365,6 +363,7 @@ def _render_conversation():
             revealed_items=st.session_state.revealed_items,
             session_id=st.session_state.session_id,
             consultant_email=st.session_state.get("consultant_email", "unknown"),
+            retrieval_traces=st.session_state.retrieval_traces,
         )
 
 
@@ -391,7 +390,7 @@ def _run_evaluation():
     ]
     n_turns = len(consultant_turns)
 
-    all_items = [vars(item) for item in scenario.surface_items + scenario.tacit_items]
+    all_items = [vars(item) for item in scenario.discovery_items]
     state = {
         "transcript": messages,
         "revealed_items": st.session_state.revealed_items,
@@ -455,6 +454,7 @@ def _run_evaluation():
         st.session_state.revealed_items,
         state,
         consultant_email=st.session_state.get("consultant_email", "unknown"),
+        retrieval_traces=st.session_state.retrieval_traces,
     )
     st.session_state.log_path = str(log_path)
     st.session_state.log_content = log_content
@@ -516,8 +516,12 @@ def _generate_report_pdf(eval_state: dict, scenario_title: str, persona_name: st
     alternatives = {a["turn_index"]: a for a in eval_state.get("simulated_alternatives", [])}
 
     def _ps(text: str) -> str:
-        """Replace Unicode characters unsupported by Helvetica (Latin-1 only) with ASCII equivalents."""
-        return (
+        """
+        Sanitize text for Helvetica (Latin-1 only).
+        Replace known Unicode, then drop anything still outside Latin-1 so FPDF
+        never encounters a character it cannot render.
+        """
+        text = (
             text
             .replace("\u2014", "-")   # em dash
             .replace("\u2013", "-")   # en dash
@@ -527,7 +531,10 @@ def _generate_report_pdf(eval_state: dict, scenario_title: str, persona_name: st
             .replace("\u201d", '"')   # right double quote
             .replace("\u2026", "...")  # ellipsis
             .replace("\u00a0", " ")   # non-breaking space
+            .replace("\u20ac", "EUR") # euro sign (common in scenario data)
         )
+        # Drop any remaining characters outside Latin-1 rather than letting FPDF crash.
+        return text.encode("latin-1", errors="ignore").decode("latin-1")
 
     pdf = FPDF()
     pdf.set_margins(20, 20, 20)
@@ -828,25 +835,13 @@ def _render_evaluation():
     # -------------------------------------------------------------------------
     # Download session log
     # -------------------------------------------------------------------------
-    dl_col1, dl_col2 = st.columns([1, 1])
     if st.session_state.get("log_content"):
         log_name = Path(st.session_state.log_path).name if st.session_state.log_path else "session.json"
-        with dl_col1:
-            st.download_button(
-                label="Download session log",
-                data=st.session_state.log_content,
-                file_name=log_name,
-                mime="application/json",
-            )
-    with dl_col2:
-        persona_name = st.session_state.get("selected_persona")
-        pdf_bytes = _generate_report_pdf(eval_state, scenario.title, persona_name)
-        pdf_name = f"feedback_{scenario.title.replace(' ', '_').lower()}.pdf"
         st.download_button(
-            label="Download feedback report (PDF)",
-            data=pdf_bytes,
-            file_name=pdf_name,
-            mime="application/pdf",
+            label="Download session log",
+            data=st.session_state.log_content,
+            file_name=log_name,
+            mime="application/json",
         )
 
 

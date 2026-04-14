@@ -28,23 +28,41 @@ it cannot see. Facts are held outside the system prompt and injected only after 
 gate confirms the consultant earned them. Suppression rules cannot reliably beat visibility.
 Not giving the information to the model is the only robust approach.
 
-## Why a separate retrieval LLM, not a rule-based matching function
+## Why embedding-based retrieval, not an LLM gate
 
-Matching a consultant question to a knowledge item is fundamentally a semantic task, not a
-keyword task. "How is user access managed?" and "who controls who can log into the platform?"
-are the same question expressed differently. A rule-based matcher (keyword overlap, embedding
-similarity threshold) would either over-match (broad questions unlock everything) or under-match
-(novel phrasing misses items it should earn).
+The original design used a Claude Sonnet 4.6 call (temp 0.0) per consultant turn to judge whether
+a question was genuine and which items it earned. This worked but had structural problems: it added
+latency on every turn, it was a black box (no visibility into why an item was or wasn't returned),
+and it made threshold calibration impossible without re-running LLM inference.
 
-Using an LLM for retrieval enables the "direct specificity" criterion: the retrieval model can
-reason about whether a question specifically targets an item, not just whether it's topically
-adjacent. This is a semantic judgment that requires understanding both the question's intent and
-the item's content — well-suited to LLMs.
+The embedding-based replacement separates the problem into two cheaper parts:
 
-Claude Sonnet 4.6 is used for retrieval (temp 0.0). It runs on every consultant turn and needs
-analytical precision, not creative generation. Haiku would be too weak for the semantic directness
-judgment; Opus would be over-specified and slow. Sonnet at temp 0.0 gives deterministic, accurate
-matching at acceptable latency.
+**Pre-filters (rule-based Python)**: structural check (verb/question-word presence) and intent
+check (catch-all / acknowledgment detection) are the bulk of the "is this a real question?" gate.
+These are fast, deterministic, and cover the clear-failure cases without any API call.
+
+**Semantic matching (Voyage embeddings)**: for questions that pass the gate, cosine similarity
+against pre-built indices finds relevant items. The `EmbeddingStore` embeds all items once at
+session start (document input_type) and normalises them so retrieval is a matrix-vector dot
+product — fast and cheap. Each consultant turn makes two embedding API calls (one per index, one
+query vector each), not one LLM inference.
+
+The tradeoff is precision: an LLM can reason about "direct specificity" (would the question go
+unanswered without this item?) in a way that a fixed threshold cannot. Embeddings return
+topically similar items regardless of whether the question specifically targeted them. In practice,
+separate thresholds for CK (0.45, permissive — contextual background) and DI (0.55, stricter —
+earned disclosures), combined with `max_char_items=5` and `max_disc_items=3` caps, produce
+acceptable precision. The retrieval trace written on every turn logs top-5 scores for each index,
+enabling empirical threshold calibration without re-running inference.
+
+## Why retrieval traces in session logs
+
+The embedding thresholds (0.45 / 0.55) are first-pass defaults chosen without empirical data.
+The right thresholds depend on the scenario's item density, phrasing style, and consultant
+vocabulary — these vary across engagements. Recording a retrieval trace per turn (item IDs, scores,
+retrieval mode) in the session JSON makes it possible to review real sessions and identify
+systematic over- or under-matching without re-running the conversation. This is the equivalent
+of logging prediction confidence in a classification system.
 
 ## Why LangGraph, not a plain Python loop
 
@@ -52,8 +70,8 @@ A plain loop (`while True: input → LLM → print`) would work for the conversa
 to use LangGraph are:
 
 1. **State management**: LangGraph's typed state with reducers makes it explicit what persists
-   across turns (`messages`, `revealed_items`) and how updates are merged. A plain dict would
-   work but is easier to corrupt by accident.
+   across turns (`messages`, `revealed_items`, `retrieval_traces`) and how updates are merged.
+   A plain dict would work but is easier to corrupt by accident.
 
 2. **Separation of concerns**: the retrieval gate and client response are genuinely different
    operations. Putting them in separate nodes means either can be replaced, tested, or logged

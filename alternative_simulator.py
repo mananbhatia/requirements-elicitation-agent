@@ -313,6 +313,9 @@ def build_alternative_simulator(conversation_graph):
                 if item["id"] not in original_revealed_through_turn
             ]
             alt_is_well_formed = pre_annotation.get("is_well_formed", True) if pre_annotation else True
+            # Capture the retrieval trace for the alternative question (graph returns it in sim_state)
+            alt_traces = sim_state.get("retrieval_traces", [])
+            alt_retrieval_trace = alt_traces[0] if alt_traces else None
             print(f"[SIM]   Alt well-formed: {alt_is_well_formed} | Alt revealed items: {len(newly_revealed_in_sim)}")
 
             verdict_prompt = _VERDICT_PROMPT.format(
@@ -340,6 +343,7 @@ def build_alternative_simulator(conversation_graph):
                 "alt_revealed_items": newly_revealed_in_sim,
                 "alt_is_well_formed": alt_is_well_formed,
                 "improvement_verdict": improvement_verdict,
+                "alt_retrieval_trace": alt_retrieval_trace,
             })
 
         return {"simulated_alternatives": results}

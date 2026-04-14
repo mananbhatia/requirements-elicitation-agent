@@ -40,17 +40,26 @@ def _serialize_messages(messages: list) -> list[dict]:
 
 
 def _serialize_revealed_items(revealed_items: list) -> list[dict]:
+    """Serialize revealed DI items to canonical schema: id, content, topic, unlocked_at_turn."""
     result = []
     for item in revealed_items:
         if hasattr(item, "id"):
-            result.append({
+            entry = {
                 "id": item.id,
                 "content": item.content,
-                "layer": item.layer,
                 "topic": getattr(item, "topic", ""),
-            })
+            }
         elif isinstance(item, dict):
-            result.append(item)
+            entry = {
+                "id": item.get("id", ""),
+                "content": item.get("content", ""),
+                "topic": item.get("topic", ""),
+            }
+            if "unlocked_at_turn" in item:
+                entry["unlocked_at_turn"] = item["unlocked_at_turn"]
+        else:
+            continue
+        result.append(entry)
     return result
 
 
@@ -129,6 +138,7 @@ def save_partial_session(
     revealed_items: list,
     session_id: str,
     consultant_email: str = "unknown",
+    retrieval_traces: list | None = None,
 ) -> None:
     """
     Save transcript and revealed items mid-conversation, before evaluation runs.
@@ -149,6 +159,7 @@ def save_partial_session(
         "scenario": scenario_title,
         "transcript": _serialize_messages(transcript),
         "revealed_items": _serialize_revealed_items(revealed_items),
+        "retrieval_traces": retrieval_traces or [],
     }
     content = json.dumps(payload, indent=2, ensure_ascii=False)
 
@@ -170,6 +181,7 @@ def save_session(
     revealed_items: list,
     eval_state: dict,
     consultant_email: str = "unknown",
+    retrieval_traces: list | None = None,
 ) -> tuple[Path, str]:
     """
     Saves session data and returns (path, json_content).
@@ -193,6 +205,7 @@ def save_session(
         "simulated_alternatives": eval_state.get("simulated_alternatives", []),
         "report": eval_state.get("report", {}),
         "summary_stats": _compute_summary_stats(annotations),
+        "retrieval_traces": retrieval_traces or [],
     }
     content = json.dumps(payload, indent=2, ensure_ascii=False)
 

@@ -18,3 +18,6 @@ env:
 
   - name: DATABRICKS_TOKEN
     valueFrom: databricks_token
+
+  - name: VOYAGE_API_KEY
+    valueFrom: voyage_key

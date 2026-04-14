@@ -6,3 +6,5 @@ python-dotenv
 streamlit
 requests
 fpdf2
+voyageai
+numpy

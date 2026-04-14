@@ -14,51 +14,59 @@ like real organizational stakeholders. System evaluates their performance afterw
 ## Architecture
 
 ### Knowledge Gating (core design principle)
-The synthetic client cannot reveal what it cannot see. All scenario knowledge is split into three layers:
+The synthetic client cannot reveal what it cannot see. All scenario knowledge is split into two tiers:
 
 - **character_text** — always in the system prompt. Defines identity, personality, team structure.
   Contains ZERO factual data about the platform or situation.
-- **surface_items** — facts the client would share if asked about the relevant topic.
-  Gated: unlocked by genuine specific questions. Parsed from What the Client Can Articulate.
-- **tacit_items** — facts the client guards carefully. Written in plain client language,
-  no technical jargon. Gated: unlocked only when asked specifically. Parsed from
-  the "What the Client Knows But Won't Volunteer" section.
+- **character_knowledge (CK)** — rich narrative paragraphs parsed from the `Character Knowledge`
+  section. Retrieved fresh each turn as topical context. NOT persisted in state — the client can
+  draw on this background without the consultant having "unlocked" it. One item per paragraph.
+- **discovery_items (DI)** — specific facts the client progressively discloses. Gated: injected
+  into the system prompt only after retrieval confirms the consultant earned them. Persist once
+  revealed — re-injected on every subsequent turn. Parsed from `Discovery Items` sections with
+  explicit `[DI-XX]` IDs.
 
 ### Retrieval System
-Each consultant turn runs through a retrieval LLM call (Claude Sonnet 4.6, temp 0.0)
-before the client responds. The retrieval gate decides whether the
-question is genuine and, if so, which items it earned. The number of items returned is an
-output of the relevance judgment — not a hard cap. Follows Grice's Maxim of Quantity: items
-returned should be proportional to what the question covered.
+Retrieval is embedding-based using Voyage AI. No LLM call per turn for retrieval.
 
-Retrieval uses a three-step approach:
-1. Structural check: does the input contain a verb or question word? Bare noun phrases fail immediately.
-2. Intent check: does it ask about this client's specific situation? Topic references ("SCIM?",
-   "what about X?") are disqualified. Catch-alls are disqualified.
-3. Relevance matching: **direct specificity, not topical association**. For each candidate item,
-   the test is: "if this item did not exist, would the question go unanswered?" If yes, it's a
-   direct match. If the item is merely about the same topic area, it is not returned. Broad
-   questions earn 0–1 items; specific questions earn the items they directly target. Tacit items
-   require a stricter bar (question must ask about current state/process, not just the topic area).
-   `matched_ids` is ordered by decreasing relevance — most directly targeted item first.
-   A code-level `[:3]` cap in `retrieve_relevant_knowledge()` guards against prompt misjudgements;
-   if it binds regularly, the prompt needs tuning, not the cap.
+Two pre-filters run as cheap rule-based Python checks before any embedding call:
+1. **Structural check**: does the input contain a verb or question word? Bare noun phrases
+   ("SCIM?", "clusters?") fail immediately.
+2. **Intent check**: is it a genuine question, not a reaction or catch-all? Blocks
+   acknowledgments, "tell me more", and "what about X?" topic-reference patterns.
 
-The last 2 conversation turns are passed as context so follow-up questions resolve correctly
-(e.g. "is it acceptance or production?" maps to PowerBI after discussing PowerBI).
+If both pass, retrieval queries two separate `EmbeddingStore` indices (Voyage `voyage-3.5-lite`,
+cosine similarity) with separate thresholds:
+- **CK index** (char_threshold=0.45): returns up to 5 character knowledge paragraphs as
+  topical context for the current turn. Retrieved fresh every turn — not persisted.
+- **DI index** (disc_threshold=0.55): returns up to 3 discovery items that pass the threshold
+  and have not already been revealed. These are persisted in state.
 
-Retrieval returns `{"is_genuine": bool, "matched_ids": [...]}`. If `is_genuine` is false,
-no item is revealed regardless of matched_ids.
+**Context-aware retry**: if `needs_context(question)` is true (referential pronouns at start,
+"and/but/so" openers, ≤4 words) OR both indices return empty, retrieval is retried with the
+preceding exchange prepended: `"Previous exchange:\n...\n\nCurrent question:\n..."`.
+
+**`EmbeddingStore`**: embeds all items once at construction time (document input_type). Normalises
+embeddings so query is a matrix-vector dot product — no API call for similarity. Query vectors are
+embedded once per pass and reused for both thresholded results and top-5 debug logging.
+
+**Retrieval traces**: every turn produces a trace dict stored in `ConversationState.retrieval_traces`
+and written to session logs. Contains: `retrieval_mode` (question-only / context-aware / blocked),
+`retrieved_ck_items` and `matched_di_items` with scores and previews, `newly_revealed_di_ids`,
+`excluded_already_revealed_di_ids`. Used for offline threshold calibration.
 
 ### Conversation Graph (LangGraph Two-Node)
 Each turn: `retrieval_node → client_node`
-- `retrieval_node`: reads latest human message + conversation context, calls retrieval LLM,
-  returns newly unlocked items as dicts
-- `client_node`: builds system prompt (character_text + all revealed items so far), calls
-  client LLM (Claude Sonnet 4.6, temp 0.7), returns response
+- `retrieval_node`: no-op pass-through — kept for graph shape compatibility with
+  `alternative_simulator.py` which invokes the graph as a black box.
+- `client_node`: runs embedding retrieval, builds system prompt
+  (character_text + CK context + all revealed DI items), calls client LLM
+  (Claude Sonnet 4.6, temp 0.7), returns response + newly revealed DI items + retrieval trace.
 
-State: `messages` (conversation history, using add_messages reducer) +
-`revealed_items` (accumulated facts, deduplicated by ID via custom reducer)
+State fields:
+- `messages`: conversation history (add_messages reducer)
+- `revealed_items`: accumulated DI facts, deduplicated by ID. Schema: `{id, content, topic, unlocked_at_turn}`
+- `retrieval_traces`: one trace dict per real consultant turn (append-only, None-safe reducer)
 
 ### Evaluation Pipeline (LangGraph Three-Node)
 Runs after the interview ends. Separate graph from the conversation graph.
@@ -100,7 +108,7 @@ For every turn where `is_well_formed` is false (questions and unproductive_state
 
 Result dict per alternative:
 `turn_index, original_question, original_response, alternative_question, simulated_response,
-alt_revealed_items, alt_is_well_formed, alt_information_elicited, improvement_verdict`
+alt_revealed_items, alt_is_well_formed, improvement_verdict, alt_retrieval_trace`
 
 **Node 3 — report_generator**
 One LLM call (Claude Sonnet 4.6, temp 0.3) that receives the full transcript,
@@ -136,21 +144,18 @@ Two formats are supported. `knowledge.py` detects the format automatically.
 **Multi-persona format** (generated by `scenario_generator/`, detected by `## Persona:` headers):
 - **Shared header** (before first `## Persona:`): `## Scenario Parameters` (dropped), `## Topics`, `## Consultant Briefing`
 - **Per-persona blocks**: `## Persona: {name}` containing `###` subsections:
-  - `### Identity`, `### Persona Maturity`, `### Personality and Communication Style`, `### Character Knowledge`, `### Team Members` → `character_text`
-  - `### Discovery Items` → `surface_items` (layer="surface"); parsed with explicit `[DI-XX]` IDs
-  - No tacit layer in generated format — all gated items are surface (known gap: two-stage unlock mechanic is bypassed)
-- `load_scenario(path, persona="Danny")` loads a specific persona block; defaults to first if `persona=None`
+  - `### Identity`, `### Persona Maturity`, `### Personality and Communication Style`, `### Team Members` → `character_text`
+  - `### Character Knowledge` → `character_knowledge` list (one `ScenarioItem` per double-newline paragraph, IDs `CK-01`, `CK-02`, ...). Markdown sub-headers (`####`) are stripped. NOT in character_text.
+  - `### Discovery Items` → `discovery_items`; parsed with explicit `[DI-XX]` IDs
+- `load_scenario(path, persona="Danny")` — `persona=` is **required** for multi-persona files. Raises `ValueError` with available names if omitted (no silent default to first persona).
 - `scenario.title` = `"{scenario_title} — {persona_name}"`
 
 **Scenario Parameters note**: `interview_stage` (initial_discovery / follow_up / ongoing) is a pipeline parameter injected after extraction — not inferred from notes. `consultant_prior_knowledge` is not extracted; what the consultant knows going in is derived from engagement type and interview stage in the briefing prompt.
 
-Items in all gated sections may carry `[topic: code]` inline tags (e.g. `[topic: iam/provisioning]`)
-to associate them with the topic taxonomy. The tag is stripped from the item content before injection.
-Items without a topic tag still work — they just won't link to any taxonomy entry.
-
-Items in SURFACE and TACIT sections may carry `[topic: code]` inline tags (e.g. `[topic: iam/provisioning]`)
-to associate them with the topic taxonomy. The tag is stripped from the item content before injection.
-Items without a topic tag still work — they just won't link to any taxonomy entry.
+Items in `Discovery Items` and `Character Knowledge` sections may carry `[topic: code]` inline
+tags (e.g. `[topic: iam/provisioning]`) to associate them with the topic taxonomy. The tag is
+stripped from the item content before use. Items without a topic tag still work — they just won't
+link to any taxonomy entry.
 
 The Technical Reference section maps client plain language to technical terms — used by
 the evaluator, never seen by the client LLM.
@@ -220,37 +225,42 @@ Three dimensions, each set independently in the `Maturity Level` section of the 
 
 **Partial save** (`save_partial_session`): written after every consultant turn during the conversation.
 - File: `logs/partial_{session_id}.json` — fixed name, overwritten each turn
-- Contains: transcript + revealed_items only. No evaluation data.
+- Contains: transcript + revealed_items + retrieval_traces. No evaluation data.
 - Purpose: captures conversation even if consultant never clicks End Interview. Best-effort (errors suppressed).
 
 **Full save** (`save_session`): written after evaluation completes.
 - **Local**: `logs/sessions/session_YYYY-MM-DD_HH-MM-SS.json`
 - **Databricks Apps**: `SESSION_LOG_DIR/sessions/session_YYYY-MM-DD_HH-MM-SS.json` written via Databricks Files API (PUT /api/2.0/fs/files/) — Unity Catalog Volumes are not auto-mounted in App containers.
-- Contains: `consultant_email`, timestamp, scenario title, transcript, revealed items, turn_annotations, simulated_alternatives, report dict, summary_stats.
+- Contains: `consultant_email`, timestamp, scenario title, transcript, revealed_items, retrieval_traces, turn_annotations, simulated_alternatives (each with `alt_retrieval_trace`), report dict, summary_stats.
+
+`revealed_items` canonical schema: `{id, content, topic, unlocked_at_turn}` — no `layer` field.
 
 `SESSION_LOG_DIR` defaults to `logs/` locally; set via env var in `app.yaml` for deployment.
 `logs/` is gitignored.
 
 ## Tech Stack
 - Python, LangChain, LangGraph
-- Anthropic Claude Sonnet 4.6 for: synthetic client (temp 0.7), retrieval gate (temp 0.0), turn evaluation / evaluate_turn (temp 0.0), alternative question generation (temp 0.3), report generation (temp 0.3)
+- Anthropic Claude Sonnet 4.6 for: synthetic client (temp 0.7), turn evaluation / evaluate_turn (temp 0.0), alternative question generation (temp 0.3), report generation (temp 0.3)
 - Anthropic Claude Haiku 4.5 for: turn classification / classify_turn (temp 0.0)
 - Anthropic Claude Opus 4.6 for: scenario generator pipeline (narrative generation, refinement passes, validation, review)
+- Voyage AI (`voyageai`, model `voyage-3.5-lite`) for: embedding-based retrieval — CK and DI indices built once per session; cosine similarity via numpy dot product
+- numpy for: in-memory embedding similarity computation
 - Databricks GPT-OSS-120B: no longer used in production (still referenced in tests/)
-- python-dotenv for API key management (`ANTHROPIC_API_KEY`, `DATABRICKS_TOKEN`, `DATABRICKS_BASE_URL`)
+- python-dotenv for API key management (`ANTHROPIC_API_KEY`, `VOYAGE_API_KEY`, `DATABRICKS_TOKEN`, `DATABRICKS_BASE_URL`)
+- `EMBEDDING_MODEL` env var: overrides default embedding model (default: `voyage-3.5-lite`)
 - Streamlit for UI
-- fpdf2 for PDF feedback report generation
+- fpdf2: present in requirements but PDF download button removed from UI (Latin-1 rendering limitation)
 
 ## Streamlit UI Features
-- **Persona selection screen** (multi-persona files only): shown on first load before the conversation starts. Displays the consultant briefing (Client context first) then one card per persona (name, role, maturity hint). Selecting a persona sets `st.session_state.selected_persona` and transitions to conversation. No mid-conversation switching — "Start New Interview" resets to persona selection.
-- **Sidebar** (conversation + evaluation phases): compact header, End Interview button (top + bottom), "Consultant Briefing — read before interview" heading, briefing fields, topic taxonomy
-- **Conversation**: standard chat interface; partial session JSON saved after every turn
+- **Persona selection screen** (multi-persona files only): shown on first load before the conversation starts. Heading: "Choose who to interview first" with a recommendation caption. One card per persona (name, role, maturity hint). Selecting a persona sets `st.session_state.selected_persona` and transitions to conversation. No mid-conversation switching — "Start New Interview" resets to persona selection.
+- **Sidebar** (conversation + evaluation phases): alpha caption, End Interview button (top + bottom), "Consultant Briefing" heading (####), briefing fields, "Topics to cover" heading (####). No divider between briefing and topics (reduces vertical whitespace).
+- **Conversation**: standard chat interface; partial session JSON (with retrieval_traces) saved after every turn
 - **Evaluation progress bar**: Step 1 advances per turn (0–33%), Steps 2–3 are single jumps
 - **Evaluation display**: single page, three stacked sections:
   1. Stats bar (4 metrics) + topic coverage grid (2-col, bold topic + colored fraction + subtopic caption line)
   2. Summary sentence + Continue / Stop / Start in three columns
   3. Turn-by-Turn Detail — each turn is its own expander showing badges, You/Client exchange, mistake tag + explanation, and Original vs Alternative side-by-side HTML table where applicable
-- **Download buttons**: session log (JSON) + feedback report (PDF) side by side below turn-by-turn section
+- **Download**: session log (JSON) only — PDF download removed
 
 ## Deployment (Databricks Apps)
 
@@ -279,12 +289,12 @@ Key deployment details:
 ```
 agent_v2/
 ├── main.py                  # terminal conversation loop
-├── streamlit_app.py         # Streamlit UI (persona selection, sidebar, evaluation, PDF download)
-├── graph.py                 # conversation LangGraph construction
+├── streamlit_app.py         # Streamlit UI (persona selection, sidebar, evaluation, session log download)
+├── graph.py                 # conversation LangGraph; builds embedding indices once per session
 ├── eval_graph.py            # evaluation LangGraph construction
-├── client.py                # retrieval_node, client_node, behavior rules (Claude Sonnet 4.6)
-├── knowledge.py             # scenario parser (legacy + multi-persona), retrieval LLM (Sonnet 4.6)
-├── state.py                 # ConversationState TypedDict, custom reducers
+├── client.py                # retrieval_node (no-op), client_node (embedding retrieval + prompt + LLM)
+├── knowledge.py             # scenario parser; EmbeddingStore; structural/intent/needs_context checks; retrieve_relevant_knowledge
+├── state.py                 # ConversationState TypedDict (messages, revealed_items, retrieval_traces)
 ├── evaluation_state.py      # EvaluationState TypedDict
 ├── evaluator_core.py        # shared MISTAKE_TYPES, format_transcript, evaluate_turn (Sonnet 4.6)
 ├── turn_evaluator.py        # node 1: per-turn mistake classification
@@ -377,26 +387,33 @@ Taxonomy is generated once per scenario from the full Phase 1/2 extraction (all 
 ## Key Design Decisions
 - **No facts in character_text**: the only reliable way to prevent leakage is to not give
   the LLM the information at all. Rules cannot reliably suppress what the LLM can see.
-- **Retrieval matches on direct specificity, not topical association**: the gate asks "would the
-  question go unanswered without this item?" — not "is this item about the same topic?". A broad
-  question about a topic area earns 0–1 items. A specific question earns the items it directly
-  targets. A `[:3]` code-level cap guards against prompt misjudgement; if it binds regularly,
-  the prompt needs tuning. `matched_ids` is ordered by relevance so the cap takes the strongest matches.
-- **Background context belongs in character_text, not gated items**: tooling stack, team size,
-  migration status are things the client knows freely as a manager — they don't warrant discovery.
-  Only facts that require a specific question to earn belong in surface/tacit. This prevents
-  early turns from dumping large amounts of platform context.
-- **Model routing by task type**: Claude Sonnet 4.6 is used for synthetic client (persona fidelity,
-  temp 0.7), retrieval gate (temp 0.0), `evaluate_turn()` (analytical precision, temp 0.0),
-  alternative question generation (creative rewriting, temp 0.3), and report generation (temp 0.3).
-  Claude Haiku 4.5 is used for `classify_turn()` (simple 5-way routing, temp 0.0). Claude Opus 4.6
-  is used in the scenario generator pipeline for tasks requiring higher quality: narrative generation
-  (Phase 4), inference path validation (Phase 5), discovery item refinement (Phase 3), and review
-  (Phase 7). GPT-OSS-120B is no longer used in production.
-- **Plain language in tacit items**: technical terms in scenario items caused the client to
+- **Embedding retrieval, not LLM gate**: semantic matching is now done via Voyage embeddings
+  (cosine similarity) rather than an LLM call per turn. Pre-filters (structural, intent) remain
+  as cheap rule-based Python checks. This removes per-turn LLM cost for retrieval, makes results
+  deterministic and inspectable (scores logged), and enables offline threshold calibration via
+  retrieval traces.
+- **Two-tier knowledge injection**: CK items provide contextual background retrieved fresh each
+  turn; DI items are stateful disclosures that persist once revealed. Keeping these separate
+  prevents a consultant gaining permanent "credit" for contextual background that should always
+  be available.
+- **Background context belongs in character_text / CK, not gated DI items**: tooling stack,
+  team size, migration status are things the client knows freely as a manager — they don't warrant
+  discovery. Only facts that require a specific question to earn belong in discovery_items. This
+  prevents early turns from dumping large amounts of platform context.
+- **`persona=` required for multi-persona files**: `load_scenario()` raises `ValueError` if
+  `persona` is omitted on a multi-persona file. Silent fallback to "first persona in file" was
+  position-dependent and invisible — a file reorder would silently load the wrong persona.
+- **Model routing by task type**: Claude Sonnet 4.6 for synthetic client (temp 0.7),
+  `evaluate_turn()` (temp 0.0), alternative generation (temp 0.3), report (temp 0.3).
+  Claude Haiku 4.5 for `classify_turn()` (simple routing, temp 0.0). Claude Opus 4.6 for
+  scenario generator (narrative, validation, review). Voyage AI for retrieval embedding.
+  GPT-OSS-120B no longer used in production.
+- **Plain language in discovery items**: technical terms in scenario items caused the client to
   use jargon it couldn't explain, creating incoherence. The client speaks in plain language.
-- **Context passed to retrieval**: last 2 turns of conversation passed so follow-up questions
-  ("is it X or Y?") resolve correctly without requiring the consultant to repeat the topic.
+- **Context passed to retrieval only when needed**: `needs_context()` detects referential or
+  incomplete questions (subject-position pronoun at start, follow-up openers, ≤4 words) before
+  triggering context-aware retry. Self-contained questions — even those containing "it" or "that"
+  mid-sentence with a local antecedent — stay in question-only mode to avoid unnecessary API calls.
 - **Two independent evaluation dimensions**: `is_well_formed` (question quality) and
   `information_elicited` (outcome) are assessed separately. A well-formed question can fail
   to elicit information if the client doesn't have the answer — these are different problems
