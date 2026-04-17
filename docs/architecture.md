@@ -98,14 +98,14 @@ lightweight; the evaluation graph is thorough and runs once.
 
 ## Why classify before evaluate (two-step evaluation)
 
-The mistake taxonomy (14 types) is designed for questions. Applying it to non-question turns
+The mistake taxonomy (7 types) is designed for questions. Applying it to non-question turns
 — acknowledgments, solution proposals, statements — produces false positives. A consultant
 saying "got it, that makes sense" would be flagged for vagueness or not asking about a specific
 topic, even though it's not a question.
 
-`classify_turn()` runs first (GPT-OSS low reasoning — simple routing, not semantic) and
+`classify_turn()` runs first (Claude Haiku 4.5, temp 0.0 — simple routing, not semantic) and
 routes each turn to the appropriate evaluation logic. Questions go to `evaluate_turn()` against
-the 14 types. Solution proposals are noted but not penalised for mistakes. Acknowledgments are
+the 7 types. Solution proposals are noted but not penalised for mistakes. Acknowledgments are
 skipped. Unproductive statements are flagged without applying the question taxonomy.
 
 This keeps the mistake taxonomy valid for its intended purpose while correctly handling the

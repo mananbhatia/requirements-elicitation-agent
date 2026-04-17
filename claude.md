@@ -1,7 +1,7 @@
-# Synthetic Client Training System
+# Revelio — Synthetic Client Training System
 
-Consultant interview preparation tool for Revodata (a Databricks consulting company).
-Real consultants practice interviewing AI-generated synthetic clients that behave
+Consultant interview preparation tool. Revelio ("Ask the right question. Watch them reveal.")
+lets real consultants practice interviewing AI-generated synthetic clients that behave
 like real organizational stakeholders. System evaluates their performance afterward.
 
 ## How It Works
@@ -76,13 +76,11 @@ Flow: `turn_evaluator → alternative_simulator → report_generator`
 `classify_turn()` receives the full transcript. `evaluate_turn()` receives a **truncated transcript**
 — only up to and including the consultant's question, hiding the client's response — to prevent
 outcome bias. `evaluate_turn()` also receives `maturity_level` and `briefing` from the scenario;
-the prompt notes maturity is relevant to three specific mistake types: "Use jargon", "Ask a technical
-question", and "Ask a question inappropriate to user's profile".
+the prompt notes maturity is relevant to Type 5 ("Ask a question inappropriate to client's level").
 
 Outputs per turn:
 - `mistakes`: list containing **at most one** mistake — the single most fundamental root cause. If multiple mistake types seem to apply, they are treated as symptoms of the same underlying problem; only the one that best explains WHY the question failed is returned.
 - `is_well_formed`: true if no mistake types apply
-- `information_elicited`: gate-based — true iff `unlocked_at_turn == turn_index` for any revealed item
 
 **Node 2 — alternative_simulator**
 For every turn where `is_well_formed` is false (questions and unproductive_statements):
@@ -102,7 +100,6 @@ For every turn where `is_well_formed` is false (questions and unproductive_state
 - *Stage C*: reuses the Stage A pre-check annotation for `alt_is_well_formed` (no extra LLM call).
   `alt_revealed_items` = items uniquely unlocked in simulation that were not in the original
   conversation through turn N (excludes both prior_revealed and items the original question got).
-  `alt_information_elicited` = true iff `alt_revealed_items` is non-empty.
   Then makes a separate verdict call (Claude Sonnet 4.6) that compares both question/response
   pairs and generates a one-sentence `improvement_verdict`.
 
@@ -112,24 +109,23 @@ alt_revealed_items, alt_is_well_formed, improvement_verdict, alt_retrieval_trace
 
 **Node 3 — report_generator**
 One LLM call (Claude Sonnet 4.6, temp 0.3) that receives the full transcript,
-all annotations, all alternatives, and pre-computed topic coverage stats. Returns a structured JSON report:
-`{summary, continue, stop, start}`. Statistics and coverage stats are computed in Python before the LLM
+all annotations, and all alternatives. Returns a structured JSON report:
+`{summary, continue, stop, start}`. Summary statistics are computed in Python before the LLM
 call — the LLM is told not to recalculate.
 
 Report section definitions:
 - **CONTINUE**: 0–2 specific *techniques* the consultant used effectively (named skill, why it worked, turn refs)
 - **STOP**: 0–2 *behavior patterns* that caused problems, evidenced by the alternative working better
-- **START**: 0–2 *gaps* grounded in missed subtopics from coverage data — not abstract technique advice
+- **START**: 0–2 *gaps* evident from the transcript — patterns of avoidance or missed threads, not abstract technique advice
 - Non-redundancy self-check: the LLM is instructed to verify no point across any section says the same thing from a different angle before outputting. Empty list is valid for any section.
 - Max 2 turn refs per point. No word cap — each point is 2–3 sentences.
 
-Coverage computation (`_compute_coverage()`) runs before the LLM call and its result is stored in
-`EvaluationState.topic_coverage` so Streamlit can render the coverage UI independently of the report.
-
 ### Shared Evaluation Logic — evaluator_core.py
-`MISTAKE_TYPES`, `format_transcript`, and `evaluate_turn()` live here.
+`MISTAKE_TYPES`, `format_transcript`, `evaluate_turn()`, and `evaluate_turn_routed()` live here.
 Both `turn_evaluator.py` and `alternative_simulator.py` import from this module.
 Prevents prompt duplication and ensures the alternative is evaluated with identical criteria.
+`evaluate_turn_routed()` orchestrates classification + routing and is the entry point called by
+`turn_evaluator.py`.
 
 ### Scenario File Structure
 Two formats are supported. `knowledge.py` detects the format automatically.
@@ -163,7 +159,7 @@ The Technical Reference section maps client plain language to technical terms �
 the evaluator, never seen by the client LLM.
 
 ## Synthetic Client Behavior Rules
-Defined in `docs/behavior_rules.md` (loaded by `client.py` at runtime). 9 scenario-agnostic rules based on C-LEIA research principles: answer only what was asked, no fabrication, express facts through experience, deferral is a last resort, never break character.
+Defined in `docs/behavior_rules.md` (loaded by `client.py` at runtime). 9 scenario-agnostic rules. Key principles: answer only what was asked (Rule 1), no repetition (Rule 2), draw only on what the context contains — no fabrication or estimation (Rule 3), express facts through lived experience not clinical description (Rule 4), never raise topics unprompted (Rule 5), engage with proposals from experience (Rule 6), ask for clarification on unfamiliar terms before answering (Rule 7), ask questions only when genuinely needed (Rule 8), never break character (Rule 9). Rules are generic — apply to all personas, no persona-specific examples.
 
 ## Client Maturity Levels
 Three dimensions, each set independently in the `Maturity Level` section of the scenario file:
@@ -203,22 +199,15 @@ Three dimensions, each set independently in the `Maturity Level` section of the 
 ## Evaluation — What Is Built
 
 ### Mistake-based evaluation (complete)
-- Per-turn classification against 14 mistake types
-- Two independent dimensions: `is_well_formed` and `information_elicited`
+- Per-turn classification against 7 mistake types (Category A: Follow-up Mistakes — Types 1–3; Category B: Question Framing Mistakes — Types 4–7)
+- `is_well_formed` per turn: true if no mistake type applies
 - Alternative generation with topic preservation and mistake-avoidance constraints
 - Stage C evaluation of alternatives using same criteria as original turns
 - One-sentence improvement verdict comparing both question/response pairs
 - Structured JSON feedback report `{summary, continue, stop, start}` with non-redundancy self-check; each section answers a distinct question (technique / habit / gap)
 
-### Topic coverage (complete)
-- Computed from `revealed_items` topic codes vs. all scenario items' topic codes
-- Binary per subtopic: covered if any item with that subtopic was revealed
-- A top-level topic is fully/partially/not covered based on its subtopics
-- Stats pre-computed in Python (`_compute_coverage()` in `report_generator.py`)
-- Passed to report LLM as hard facts; LLM writes the COVERAGE section of the report
-- Also rendered in Streamlit as a 2-column grid: bold topic name, colored fraction (green/orange/red), subtopics as inline dot-separated caption in taxonomy order
-
 ### Not yet built
+- **Topic coverage**: tracking which subtopics were covered vs missed across the session
 - **Interaction strategy**: did the consultant ask questions only, or also propose solutions?
 - **Adaptability**: did the consultant adapt to the client's knowledge level over time?
 
@@ -234,6 +223,7 @@ Three dimensions, each set independently in the `Maturity Level` section of the 
 - **Local**: `logs/sessions/session_YYYY-MM-DD_HH-MM-SS.json`
 - **Databricks Apps**: `SESSION_LOG_DIR/sessions/session_YYYY-MM-DD_HH-MM-SS.json` written via Databricks Files API (PUT /api/2.0/fs/files/) — Unity Catalog Volumes are not auto-mounted in App containers.
 - Contains: `consultant_email`, timestamp, scenario title, transcript, revealed_items, retrieval_traces, turn_annotations, simulated_alternatives (each with `alt_retrieval_trace`), report dict, summary_stats.
+- **Partial cleanup**: after the full write succeeds, the partial file for this `session_id` is deleted (best-effort, in a separate try/except). If the full write fails, the partial is left untouched — no data loss. Local: `partial_path.unlink()`. Databricks: DELETE /api/2.0/fs/files/ via `_files_api_delete()`.
 
 `revealed_items` canonical schema: `{id, content, topic, unlocked_at_turn}` — no `layer` field.
 
@@ -259,7 +249,7 @@ Three dimensions, each set independently in the `Maturity Level` section of the 
 - **Conversation**: standard chat interface; partial session JSON (with retrieval_traces) saved after every turn
 - **Evaluation progress bar**: Step 1 advances per turn (0–33%), Steps 2–3 are single jumps
 - **Evaluation display**: single page, three stacked sections:
-  1. Stats bar (4 metrics) + topic coverage grid (2-col, bold topic + colored fraction + subtopic caption line)
+  1. Stats bar (questions total + well-formed questions)
   2. Summary sentence + Continue / Stop / Start in three columns
   3. Turn-by-Turn Detail — each turn is its own expander showing badges, You/Client exchange, mistake tag + explanation, and Original vs Alternative side-by-side HTML table where applicable
 - **Download**: session log (JSON) only — PDF download removed
@@ -420,15 +410,15 @@ Taxonomy is generated once per scenario from the full Phase 1/2 extraction (all 
   incomplete questions (subject-position pronoun at start, follow-up openers, ≤4 words) before
   triggering context-aware retry. Self-contained questions — even those containing "it" or "that"
   mid-sentence with a local antecedent — stay in question-only mode to avoid unnecessary API calls.
-- **Two independent evaluation dimensions**: `is_well_formed` (question quality) and
-  `information_elicited` (outcome) are assessed separately. A well-formed question can fail
-  to elicit information if the client doesn't have the answer — these are different problems
-  requiring different interventions.
+- **Single evaluation dimension per turn**: `is_well_formed` (question quality) is the per-turn
+  signal. Whether the question actually unlocked a discovery item (`alt_revealed_items`) is
+  computed in the alternative simulator for comparison purposes — not a separate evaluation
+  dimension shown per-turn in the report.
 - **Stage C reuses evaluator_core**: the alternative question is evaluated with the exact
   same prompt and criteria as the original. This makes the comparison meaningful — both
   sides are judged on the same scale.
-- **Gold examples drive the report**: turns where the original failed but the alternative
-  succeeded (`information_elicited: false` → `alt_information_elicited: true`) are the most
+- **Gold examples drive the report**: turns where the original failed (`is_well_formed: false`)
+  but the alternative unlocked new items (`alt_revealed_items` non-empty) are the most
   instructive. The report generator is told to prioritise these as primary examples in Stop/Start
   rather than re-deriving recommendations from scratch.
 - **Statistics computed in Python**: turn counts and mistake frequencies are computed before
@@ -436,10 +426,10 @@ Taxonomy is generated once per scenario from the full Phase 1/2 extraction (all 
   a known failure mode where LLMs miscount from long annotation lists.
 - **Topic taxonomy as authoring + UI contract**: the `Topics` section in a scenario file is
   both an authoring reference (which topic codes to use in `[topic: X]` tags) and the
-  source for the sidebar "Topics to cover" display. Parent topics are bold; subtopics shown
-  as dot-separated captions. Items without a topic tag still work — they just won't link to
-  any taxonomy entry. The tier system (TIER 1/2/3) has been removed; topic coverage will
-  replace it as the coverage metric in a future change.
+  source for the sidebar "Topics to cover" display in the Streamlit app. Parent topics are
+  bold; subtopics shown as dot-separated captions. Items without a topic tag still work —
+  they just won't link to any taxonomy entry. Topic coverage tracking (which subtopics were
+  revealed vs missed) is not currently computed or displayed — it is planned as a future addition.
 - **Deferral is a last resort**: rewriting behavior rules from "hostile witness" to Grice's
   Cooperative Principle. The client relays secondhand knowledge from colleagues rather than
   redirecting. Rule 7 distinguishes unclear framing (answer + flag) from genuinely ambiguous
