@@ -128,6 +128,16 @@ def _files_api_write(file_path: Path, content: str, host: str, token: str) -> No
     resp.raise_for_status()
 
 
+def _files_api_delete(file_path: Path, host: str, token: str) -> None:
+    """Delete a file from a Unity Catalog Volume via the Databricks Files API."""
+    api_path = str(file_path).lstrip("/")
+    requests.delete(
+        f"{host}/api/2.0/fs/files/{api_path}",
+        headers={"Authorization": f"Bearer {token}"},
+        timeout=30,
+    )  # ignore response — file may already be gone
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -182,13 +192,18 @@ def save_session(
     eval_state: dict,
     consultant_email: str = "unknown",
     retrieval_traces: list | None = None,
+    session_id: str | None = None,
 ) -> tuple[Path, str]:
     """
-    Saves session data and returns (path, json_content).
+    Saves full session data and returns (path, json_content).
 
     Dispatches on SESSION_LOG_DIR:
     - /Volumes/...  → Databricks Files API (App deployment)
     - anything else → standard filesystem (local development)
+
+    Only after the full session write succeeds, the partial file for this
+    session_id is deleted (best-effort). If the full write fails, the partial
+    is left untouched so no data is lost.
     """
     logs_dir = SESSION_LOG_DIR
     timestamp = datetime.now()
@@ -209,6 +224,7 @@ def save_session(
     }
     content = json.dumps(payload, indent=2, ensure_ascii=False)
 
+    # Write full session — any failure here raises and the partial is untouched.
     if str(logs_dir).startswith("/Volumes/"):
         host = _get_workspace_host()
         token = os.environ.get("DATABRICKS_TOKEN", "")
@@ -216,5 +232,16 @@ def save_session(
     else:
         logs_dir.mkdir(parents=True, exist_ok=True)
         filename.write_text(content)
+
+    # Full write succeeded — clean up the partial file (best-effort).
+    if session_id:
+        partial_path = logs_dir / f"partial_{session_id}.json"
+        try:
+            if str(logs_dir).startswith("/Volumes/"):
+                _files_api_delete(partial_path, host, token)
+            elif partial_path.exists():
+                partial_path.unlink()
+        except Exception:
+            pass  # partial cleanup is best-effort; full session is already saved
 
     return filename, content
