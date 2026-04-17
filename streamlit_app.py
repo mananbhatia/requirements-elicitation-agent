@@ -1,5 +1,5 @@
 """
-Streamlit UI for Revodata — Consultant Interview Training.
+Streamlit UI for Revelio — consultant interview training tool.
 
 Thin UI layer over the existing conversation and evaluation pipeline.
 All graph logic lives in graph.py, eval_graph.py, knowledge.py, session_logger.py.
@@ -41,6 +41,19 @@ def get_conversation_graph(scenario_path: str, persona: str = None):
 def get_eval_graph(scenario_path: str, persona: str = None):
     conv_graph = get_conversation_graph(scenario_path, persona)
     return build_eval_graph(conv_graph)
+
+
+# ---------------------------------------------------------------------------
+# Branded header — used on every phase
+# ---------------------------------------------------------------------------
+
+def _render_header():
+    st.markdown("""
+<div class="revelio-header">
+  <div class="revelio-title">Revelio&nbsp;🪄</div>
+  <p class="revelio-tagline">Ask the right question. Watch them reveal.</p>
+</div>
+""", unsafe_allow_html=True)
 
 
 # ---------------------------------------------------------------------------
@@ -180,7 +193,7 @@ def _render_sidebar():
     persona = st.session_state.get("selected_persona")
     scenario = get_scenario(st.session_state.scenario_path, persona)
     with st.sidebar:
-        st.caption("🚧 Alpha — feedback welcome.")
+        st.caption("🚧 Alpha. Feedback welcome.")
 
         if st.session_state.phase == "conversation":
             st.caption("When done, click **End Interview** to run your evaluation. Don't forget 📋")
@@ -192,32 +205,43 @@ def _render_sidebar():
                 _reset_session()
 
         # Briefing
-        st.markdown("#### Consultant Briefing")
+        st.markdown('<p class="sidebar-label">Consultant Briefing</p>', unsafe_allow_html=True)
         if scenario.briefing:
+            rows_html = ""
             for line in scenario.briefing.splitlines():
                 line = line.strip()
                 if not line:
                     continue
                 if ":" in line:
-                    label, _, value = line.partition(":")
-                    st.markdown(f"**{label.strip()}:** {value.strip()}")
+                    lbl, _, val = line.partition(":")
+                    rows_html += (f'<div class="sidebar-briefing-row">'
+                                  f'<span class="sidebar-briefing-key">{lbl.strip()}:</span> {val.strip()}'
+                                  f'</div>')
                 else:
-                    st.markdown(line)
+                    rows_html += f'<div class="sidebar-briefing-row">{line}</div>'
+            st.markdown(f'<div class="sidebar-briefing">{rows_html}</div>', unsafe_allow_html=True)
         else:
-            st.markdown(f"**Client:** {scenario.title}")
-            st.markdown("**Meeting type:** Initial discovery — first meeting, no prior work done")
-            st.markdown("**Your role:** Lead the discovery. Ask questions.")
+            st.markdown(f'<div class="sidebar-briefing">'
+                        f'<div class="sidebar-briefing-row"><span class="sidebar-briefing-key">Client:</span> {scenario.title}</div>'
+                        f'<div class="sidebar-briefing-row"><span class="sidebar-briefing-key">Meeting type:</span> Initial discovery</div>'
+                        f'<div class="sidebar-briefing-row"><span class="sidebar-briefing-key">Your role:</span> Lead the discovery. Ask questions.</div>'
+                        f'</div>', unsafe_allow_html=True)
 
-        # Topic taxonomy
+        # Topic taxonomy — orientation for the consultant, not a scored checklist
         if scenario.topic_taxonomy:
-            st.markdown("#### Topics to cover")
+            st.markdown('<p class="sidebar-label" style="margin-top:0.75rem;">Topics to cover</p>',
+                        unsafe_allow_html=True)
             taxonomy = scenario.topic_taxonomy
             top_level = {k: v for k, v in taxonomy.items() if "/" not in k}
+            rows_html = ""
             for code, display in top_level.items():
                 subtopics = [v for k, v in taxonomy.items() if k.startswith(code + "/")]
-                st.markdown(f"**{display}**")
+                rows_html += f'<div class="sidebar-briefing-row"><span class="sidebar-briefing-key">{display}</span>'
                 if subtopics:
-                    st.caption(" · ".join(subtopics))
+                    rows_html += f'<br><span style="color:#9ca3af;font-size:0.73rem;">{" · ".join(subtopics)}</span>'
+                rows_html += '</div>'
+            st.markdown(f'<div class="sidebar-briefing" style="margin-top:0.2rem;">{rows_html}</div>',
+                        unsafe_allow_html=True)
 
         if st.session_state.phase == "conversation":
             st.divider()
@@ -250,20 +274,11 @@ def _render_persona_selection():
         st.rerun()
         return
 
-    # Reduce default Streamlit vertical padding on this screen
-    st.markdown("""
-<style>
-.block-container { padding-top: 2.5rem !important; }
-div[data-testid="stMarkdown"] p { margin-bottom: 0.3rem; }
-h2 { margin-bottom: 0.25rem !important; }
-</style>
-""", unsafe_allow_html=True)
+    _render_header()
 
     # Briefing above the persona cards — Client context first
     briefing = _parse_briefing_from_file(str(DEFAULT_SCENARIO))
     if briefing:
-        st.markdown("### Consultant Briefing")
-        # Parse into ordered fields so we can control display order
         fields = {}
         for line in briefing.splitlines():
             line = line.strip()
@@ -274,28 +289,42 @@ h2 { margin-bottom: 0.25rem !important; }
                 fields[label.strip().lower()] = (label.strip(), value.strip())
             else:
                 fields[line.lower()] = (line, "")
-        # Desired order: client context first, then the rest
+
         ordered_keys = ["client context", "engagement", "what they asked for",
                         "meeting type", "what is known going in", "expected outcome"]
+        ordered_items = []
         rendered = set()
         for key in ordered_keys:
             if key in fields:
-                label, value = fields[key]
-                st.markdown(f"**{label}:** {value}" if value else f"**{label}**")
+                ordered_items.append(fields[key])
                 rendered.add(key)
-        # Any remaining fields not in the ordered list
-        for key, (label, value) in fields.items():
+        for key, pair in fields.items():
             if key not in rendered:
-                st.markdown(f"**{label}:** {value}" if value else f"**{label}**")
+                ordered_items.append(pair)
 
-    st.markdown("### Choose who to interview first")
-    st.caption("Recommended: start with Danny for business/context discovery. Use Sajith for technical deep dives.")
+        rows_html = "\n".join(
+            f'<div class="briefing-card-row"><strong>{lbl}:</strong> {val}</div>' if val
+            else f'<div class="briefing-card-row"><strong>{lbl}</strong></div>'
+            for lbl, val in ordered_items
+        )
+        st.markdown(f"""
+<div class="briefing-card">
+  <div class="briefing-card-label">Consultant Briefing</div>
+  {rows_html}
+</div>""", unsafe_allow_html=True)
+
+    st.markdown("""
+<div style="margin: 0.4rem 0 0 0;">
+  <p class="section-heading">Choose who to interview first</p>
+  <p class="section-caption">Recommended: start with Danny for business/context discovery. Use Sajith for technical deep dives.</p>
+</div>
+""", unsafe_allow_html=True)
 
     _MATURITY_HINTS = {
-        "LOW": "Non-technical — knows symptoms, speaks in business terms",
-        "MEDIUM": "Semi-technical — familiar with concepts, not deep implementation",
-        "MEDIUM_HIGH": "Technical — platform background, operational perspective",
-        "HIGH": "Highly technical — can evaluate proposals and challenge assumptions",
+        "LOW": "Non-technical. Knows symptoms, speaks in business terms.",
+        "MEDIUM": "Semi-technical. Familiar with concepts, not deep implementation.",
+        "MEDIUM_HIGH": "Technical. Platform background, operational perspective.",
+        "HIGH": "Highly technical. Can evaluate proposals and challenge assumptions.",
     }
 
     cols = st.columns(len(personas))
@@ -303,10 +332,10 @@ h2 { margin-bottom: 0.25rem !important; }
         hint = _MATURITY_HINTS.get(persona["maturity"], "")
         with cols[i]:
             st.markdown(f"""
-<div style="border:1px solid rgba(49,51,63,0.2);border-radius:0.5rem;padding:1rem 1.1rem;min-height:110px;margin-bottom:8px;">
-  <p style="font-size:1.05em;font-weight:700;margin:0 0 4px 0;">{persona['name']}</p>
-  <p style="margin:0 0 8px 0;color:#444;">{persona['role']}</p>
-  <p style="margin:0;font-size:0.82em;color:#888;">{hint}</p>
+<div class="persona-card">
+  <p class="persona-name">{persona['name']}</p>
+  <p class="persona-role">{persona['role']}</p>
+  <p class="persona-hint">{hint}</p>
 </div>
 """, unsafe_allow_html=True)
             if st.button("Select", key=f"select_{persona['name']}",
@@ -390,17 +419,13 @@ def _run_evaluation():
     ]
     n_turns = len(consultant_turns)
 
-    all_items = [vars(item) for item in scenario.discovery_items]
     state = {
         "transcript": messages,
         "revealed_items": st.session_state.revealed_items,
-        "topic_taxonomy": scenario.topic_taxonomy,
-        "scenario_items": all_items,
         "briefing": scenario.briefing,
         "maturity": scenario.maturity,
         "turn_annotations": [],
         "simulated_alternatives": [],
-        "topic_coverage": {},
         "stats": {},
         "report": {},
     }
@@ -409,7 +434,7 @@ def _run_evaluation():
     annotations = []
     turn_index = 0
 
-    progress = st.progress(0, text="Step 1 of 3 — Evaluating turns (0%)")
+    progress = st.progress(0, text="Step 1 of 3: Evaluating turns (0%)")
 
     for message in messages:
         is_human = isinstance(message, HumanMessage) or (
@@ -434,14 +459,14 @@ def _run_evaluation():
             annotations.append(annotation)
 
         pct = int((turn_index / n_turns) * 33) if n_turns else 33
-        progress.progress(pct, text=f"Step 1 of 3 — Evaluating turns ({pct}%)")
+        progress.progress(pct, text=f"Step 1 of 3: Evaluating turns ({pct}%)")
 
     state = {**state, "turn_annotations": annotations}
 
-    progress.progress(33, text="Step 2 of 3 — Generating alternatives (33%)")
+    progress.progress(33, text="Step 2 of 3: Generating alternatives (33%)")
     state = {**state, **alternative_simulator(state)}
 
-    progress.progress(66, text="Step 3 of 3 — Writing feedback report (66%)")
+    progress.progress(66, text="Step 3 of 3: Writing feedback report (66%)")
     state = {**state, **report_generator(state)}
 
     progress.progress(100, text="Complete (100%)")
@@ -455,6 +480,7 @@ def _run_evaluation():
         state,
         consultant_email=st.session_state.get("consultant_email", "unknown"),
         retrieval_traces=st.session_state.retrieval_traces,
+        session_id=st.session_state.session_id,
     )
     st.session_state.log_path = str(log_path)
     st.session_state.log_content = log_content
@@ -511,7 +537,6 @@ def _generate_report_pdf(eval_state: dict, scenario_title: str, persona_name: st
 
     report = eval_state.get("report", {})
     stats = eval_state.get("stats", {})
-    coverage = eval_state.get("topic_coverage", {})
     annotations = eval_state.get("turn_annotations", [])
     alternatives = {a["turn_index"]: a for a in eval_state.get("simulated_alternatives", [])}
 
@@ -582,12 +607,9 @@ def _generate_report_pdf(eval_state: dict, scenario_title: str, persona_name: st
     h2("Performance Summary")
     q_total = stats.get("questions_total", 0)
     q_well = stats.get("questions_well_formed", 0)
-    n_sub = coverage.get("subtopics_covered", 0)
-    n_sub_total = coverage.get("subtopics_total", 0)
     well_pct = int(q_well / q_total * 100) if q_total else 0
     label_value("Questions asked", str(q_total))
     label_value("Well-formed", f"{q_well} ({well_pct}%)")
-    label_value("Subtopics covered", f"{n_sub} / {n_sub_total}")
     divider()
 
     # --- Summary + Continue / Stop / Start ---
@@ -650,53 +672,31 @@ def _render_evaluation():
     }
     report = eval_state.get("report", {})
     stats = eval_state.get("stats", {})
-    coverage = eval_state.get("topic_coverage", {})
-    scenario = get_scenario(st.session_state.scenario_path, st.session_state.get("selected_persona"))
-    taxonomy = scenario.topic_taxonomy
 
     # -------------------------------------------------------------------------
-    # Section 1: Stats bar + Coverage grid
+    # Section 1: Stats strip
     # -------------------------------------------------------------------------
     q_total = stats.get("questions_total", 0)
     q_well = stats.get("questions_well_formed", 0)
-    n_sub = coverage.get("subtopics_covered", 0)
-    n_sub_total = coverage.get("subtopics_total", 0)
-    well_pct = int(q_well / q_total * 100) if q_total else 0
+    q_poor = q_total - q_well
+    poor_pct = int(q_poor / q_total * 100) if q_total else 0
 
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Questions asked", q_total)
-    c2.metric("Well-formed", f"{q_well} ({well_pct}%)")
-    c3.metric("Subtopics covered", f"{n_sub} / {n_sub_total}")
-
-    # Coverage grid — 2 columns, compact inline subtopics
-    if coverage.get("parent_to_subtopics"):
-        st.markdown("**Topic Coverage**")
-        covered_set = set(coverage.get("subtopics_covered_list", []))
-        parent_to_subtopics = coverage.get("parent_to_subtopics", {})
-        # Preserve taxonomy order (insertion order), not alphabetical
-        parent_codes = [k for k in taxonomy if "/" not in k and k in parent_to_subtopics]
-        cols = st.columns(2)
-        for i, parent_code in enumerate(parent_codes):
-            subtopics = parent_to_subtopics[parent_code]
-            parent_display = taxonomy.get(parent_code, parent_code)
-            n_covered = sum(1 for s in subtopics if s in covered_set)
-            n_total = len(subtopics)
-            if n_covered == n_total:
-                frac_color = "#2e7d32"   # green — fully covered
-            elif n_covered == 0:
-                frac_color = "#c62828"   # red — nothing covered
-            else:
-                frac_color = "#e65100"   # orange — partial
-            frac_html = f'<span style="color:{frac_color};font-weight:normal;">({n_covered}/{n_total})</span>'
-            sub_parts = [
-                f"{'✅' if s in covered_set else '❌'} {taxonomy.get(s, s)}"
-                for s in subtopics
-            ]
-            with cols[i % 2]:
-                st.markdown(f"**{parent_display}** {frac_html}", unsafe_allow_html=True)
-                st.caption(" · ".join(sub_parts))
-
-    st.divider()
+    st.markdown(f"""
+<div class="eval-stats-strip">
+  <div class="eval-stat">
+    <span class="eval-stat-value">{q_total}</span>
+    <span class="eval-stat-label">Questions asked</span>
+  </div>
+  <div class="eval-stat">
+    <span class="eval-stat-value eval-stat-value-green">{q_well}</span>
+    <span class="eval-stat-label">Well-formed</span>
+  </div>
+  <div class="eval-stat">
+    <span class="eval-stat-value eval-stat-value-amber">{q_poor}</span>
+    <span class="eval-stat-label">Needs work<span class="eval-stat-pct">{poor_pct}%</span></span>
+  </div>
+</div>
+""", unsafe_allow_html=True)
 
     # -------------------------------------------------------------------------
     # Section 2: Summary + Continue / Stop / Start
@@ -704,33 +704,37 @@ def _render_evaluation():
     if report:
         summary = report.get("summary", "")
         if summary:
-            st.markdown(f"*{summary}*")
-            st.markdown("")
+            st.markdown(f'<div class="eval-summary">{summary}</div>', unsafe_allow_html=True)
+
+        def _report_card(items, card_cls, badge_cls, label, icon):
+            if not items:
+                body = '<p class="report-item-empty">None identified</p>'
+            else:
+                body = ""
+                for item in items:
+                    turns = item.get("turns", [])
+                    turn_span = (f' <span class="report-item-turn">T{", ".join(str(t) for t in turns)}</span>'
+                                 if turns else "")
+                    body += f'<div class="report-item">{item["point"]}{turn_span}</div>'
+            return (f'<div class="report-card {card_cls}">'
+                    f'<span class="report-card-badge {badge_cls}">{icon}&nbsp;{label}</span>'
+                    f'{body}</div>')
 
         col_c, col_s, col_st = st.columns(3)
-
         with col_c:
-            st.subheader("✅ Continue")
-            for item in report.get("continue", []):
-                turns = item.get("turns", [])
-                turn_ref = f" *(T{', '.join(str(t) for t in turns)})*" if turns else ""
-                st.markdown(f"- {item['point']}{turn_ref}")
-
+            st.markdown(_report_card(report.get("continue", []),
+                        "report-card-continue", "badge-continue", "Continue", "✓"),
+                        unsafe_allow_html=True)
         with col_s:
-            st.subheader("🛑 Stop")
-            for item in report.get("stop", []):
-                turns = item.get("turns", [])
-                turn_ref = f" *(T{', '.join(str(t) for t in turns)})*" if turns else ""
-                st.markdown(f"- {item['point']}{turn_ref}")
-
+            st.markdown(_report_card(report.get("stop", []),
+                        "report-card-stop", "badge-stop", "Stop", "✕"),
+                        unsafe_allow_html=True)
         with col_st:
-            st.subheader("🚀 Start")
-            for item in report.get("start", []):
-                turns = item.get("turns", [])
-                turn_ref = f" *(T{', '.join(str(t) for t in turns)})*" if turns else ""
-                st.markdown(f"- {item['point']}{turn_ref}")
+            st.markdown(_report_card(report.get("start", []),
+                        "report-card-start", "badge-start", "Start", "→"),
+                        unsafe_allow_html=True)
 
-    st.divider()
+    st.markdown("<div style='margin-top:1.5rem'></div>", unsafe_allow_html=True)
 
     # -------------------------------------------------------------------------
     # Section 3: Turn-by-turn detail (collapsed) — individual expander per turn
@@ -739,7 +743,7 @@ def _render_evaluation():
         return text.replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br>")
 
     def _render_comparison_table(question, danny_response, alt, well_formed):
-        wf_icon = "✅" if well_formed is True else ("🔴" if well_formed is False else "—")
+        wf_icon = "✅" if well_formed is True else ("🔴" if well_formed is False else "-")
         wf_label = "Yes" if well_formed is True else ("No" if well_formed is False else "N/A")
         orig_badges = f"Well-formed: {wf_icon} {wf_label}"
 
@@ -747,21 +751,21 @@ def _render_evaluation():
         alt_wf_label = "Yes" if alt.get("alt_is_well_formed", True) else "No"
         verdict = alt.get("improvement_verdict", "")
         st.markdown(f"""
-<table style="width:100%;border-collapse:collapse;font-size:0.88em;margin-top:4px;">
+<table style="width:100%;border-collapse:collapse;font-size:0.87em;margin-top:6px;">
   <thead>
     <tr>
-      <th style="width:50%;border:1px solid #ddd;padding:5px 6px;background:#f8f9fa;">Original</th>
-      <th style="width:50%;border:1px solid #ddd;padding:5px 6px;background:#f8f9fa;">Alternative</th>
+      <th style="width:50%;border:1px solid rgba(239,68,68,0.2);padding:6px 8px;background:rgba(239,68,68,0.06);color:#991b1b;font-size:0.7em;text-transform:uppercase;letter-spacing:0.07em;">Original</th>
+      <th style="width:50%;border:1px solid rgba(16,185,129,0.2);padding:6px 8px;background:rgba(16,185,129,0.06);color:#065f46;font-size:0.7em;text-transform:uppercase;letter-spacing:0.07em;">Alternative</th>
     </tr>
   </thead>
   <tbody>
     <tr>
-      <td style="border:1px solid #ddd;padding:5px 6px;vertical-align:top;"><strong>Question</strong><br>{_esc(question)}<br><small>{orig_badges}</small></td>
-      <td style="border:1px solid #ddd;padding:5px 6px;vertical-align:top;"><strong>Question</strong><br>{_esc(alt['alternative_question'])}<br><small>Well-formed: {alt_wf_badge} {alt_wf_label}</small></td>
+      <td style="border:1px solid #e5e7eb;padding:7px 8px;vertical-align:top;"><strong>Question</strong><br>{_esc(question)}<br><small style="color:#9ca3af;">{orig_badges}</small></td>
+      <td style="border:1px solid #e5e7eb;padding:7px 8px;vertical-align:top;"><strong>Question</strong><br>{_esc(alt['alternative_question'])}<br><small style="color:#9ca3af;">Well-formed: {alt_wf_badge} {alt_wf_label}</small></td>
     </tr>
     <tr>
-      <td style="border:1px solid #ddd;padding:5px 6px;vertical-align:top;"><strong>Client's response</strong><br>{_esc(danny_response)}</td>
-      <td style="border:1px solid #ddd;padding:5px 6px;vertical-align:top;"><strong>Simulated response</strong><br>{_esc(alt['simulated_response'])}</td>
+      <td style="border:1px solid #e5e7eb;padding:7px 8px;vertical-align:top;color:#4b5563;"><strong>Client's response</strong><br>{_esc(danny_response)}</td>
+      <td style="border:1px solid #e5e7eb;padding:7px 8px;vertical-align:top;color:#4b5563;"><strong>Simulated response</strong><br>{_esc(alt['simulated_response'])}</td>
     </tr>
   </tbody>
 </table>
@@ -769,7 +773,7 @@ def _render_evaluation():
         if verdict:
             st.caption(f"**Verdict:** {verdict}")
 
-    st.markdown("#### Turn-by-Turn Detail")
+    st.markdown('<p class="turn-section-label">Turn-by-Turn Detail</p>', unsafe_allow_html=True)
     if not annotations:
         st.write("No consultant turns to display.")
     else:
@@ -785,12 +789,12 @@ def _render_evaluation():
 
             q_short = (question[:80] + "…") if len(question) > 80 else question
             with st.expander(f"{icon} Turn {idx} [{turn_type}]: {q_short}", expanded=False):
-                wf_icon = "✅" if well_formed is True else ("🔴" if well_formed is False else "—")
+                wf_icon = "✅" if well_formed is True else ("🔴" if well_formed is False else "-")
                 wf_label = "Yes" if well_formed is True else ("No" if well_formed is False else "N/A")
                 badges_md = f"**Well-formed:** {wf_icon} {wf_label}"
 
                 if turn_type in ("acknowledgment", "explanation"):
-                    st.caption(f"Not evaluated — {turn_type}")
+                    st.caption(f"Not evaluated: {turn_type}")
                     st.markdown(f"**Consultant:** {question}")
                     if danny_response:
                         st.markdown(f"**Client:** {danny_response}")
@@ -804,7 +808,7 @@ def _render_evaluation():
                 elif turn_type == "unproductive_statement":
                     if mistakes:
                         expl = mistakes[0].get("explanation", "")
-                        st.markdown(f"**Mistake:** `{mistakes[0]['mistake_type']}` — {expl}")
+                        st.markdown(f"**Mistake:** `{mistakes[0]['mistake_type']}`: {expl}")
                     if alt:
                         _render_comparison_table(question, danny_response, alt, well_formed)
                     else:
@@ -823,7 +827,7 @@ def _render_evaluation():
                     else:
                         if mistakes:
                             expl = mistakes[0].get("explanation", "")
-                            st.markdown(f"**Mistake:** `{mistakes[0]['mistake_type']}` — {expl}")
+                            st.markdown(f"**Mistake:** `{mistakes[0]['mistake_type']}`: {expl}")
                         if alt:
                             _render_comparison_table(question, danny_response, alt, well_formed)
                         else:
@@ -850,13 +854,226 @@ def _render_evaluation():
 # ---------------------------------------------------------------------------
 
 st.set_page_config(
-    page_title="Revodata — Interview Training",
+    page_title="Revelio",
     page_icon="🎯",
     layout="wide",
 )
 
 st.markdown("""
 <style>
+/* ---- Theme tokens ---- */
+:root {
+    --color-primary:        #337083;
+    --color-primary-hover:  #285B6B;
+    --color-primary-soft:   #EAF3F5;
+    --color-border-subtle:  #D7E3E7;
+    --color-page-bg:        #F8FAFB;
+    --color-card-bg:        #FFFFFF;
+    --color-text-main:      #1F2937;
+    --color-text-secondary: #6B7280;
+}
+
+/* ---- Global layout ---- */
+.stApp { background-color: var(--color-page-bg); }
+.block-container { padding-top: 3rem !important; }
+
+/* ---- Revelio branding ---- */
+.revelio-header { margin-bottom: 0.5rem; line-height: 1; }
+.revelio-title {
+    font-size: 2.8rem;
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    color: var(--color-primary);
+    line-height: 1.1;
+    margin: 0;
+    display: inline-block;
+}
+.revelio-tagline {
+    font-size: 0.88rem;
+    color: #9ca3af;
+    letter-spacing: 0.04em;
+    margin-top: 0.3rem;
+    margin-bottom: 0;
+}
+
+/* ---- Briefing card (persona selection) ---- */
+.briefing-card {
+    background: var(--color-primary-soft);
+    border: 1px solid var(--color-border-subtle);
+    border-radius: 0.75rem;
+    padding: 0.9rem 1.2rem 0.75rem;
+    margin: 1.1rem 0 1.6rem;
+}
+.briefing-card-label {
+    font-size: 0.68rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--color-primary);
+    margin-bottom: 0.55rem;
+}
+.briefing-card-row {
+    font-size: 0.875rem;
+    line-height: 1.6;
+    margin-bottom: 0.1rem;
+    color: var(--color-text-main);
+}
+.briefing-card-row strong { color: var(--color-text-main); }
+
+/* ---- Persona selection section ---- */
+.section-heading {
+    font-size: 1.35rem;
+    font-weight: 700;
+    color: var(--color-text-main);
+    letter-spacing: -0.01em;
+    margin: 0 0 0.2rem 0;
+}
+.section-caption {
+    font-size: 0.82rem;
+    color: #9ca3af;
+    margin: 0 0 1.2rem 0;
+}
+.persona-card {
+    background: var(--color-card-bg);
+    border: 1px solid var(--color-border-subtle);
+    border-radius: 0.75rem;
+    padding: 1.1rem 1.25rem;
+    min-height: 115px;
+    margin-bottom: 10px;
+    transition: border-color 0.15s ease, background 0.15s ease;
+}
+.persona-card:hover {
+    background: var(--color-primary-soft);
+    border-color: var(--color-primary);
+}
+.persona-name {
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: var(--color-primary);
+    margin: 0 0 4px 0;
+}
+.persona-role { font-size: 0.875rem; color: var(--color-text-main); margin: 0 0 8px 0; }
+.persona-hint { font-size: 0.78rem; color: #9ca3af; margin: 0; }
+
+/* ---- Primary buttons — teal instead of Streamlit's default red ---- */
+div[data-testid="stButton"] > button[kind="primary"],
+div[data-testid="stBaseButton-primary"] {
+    background-color: var(--color-primary) !important;
+    border-color: var(--color-primary) !important;
+    color: white !important;
+}
+div[data-testid="stButton"] > button[kind="primary"]:hover,
+div[data-testid="stBaseButton-primary"]:hover {
+    background-color: var(--color-primary-hover) !important;
+    border-color: var(--color-primary-hover) !important;
+}
+div[data-testid="stButton"] > button[kind="primary"]:active,
+div[data-testid="stBaseButton-primary"]:active {
+    background-color: var(--color-primary-hover) !important;
+    border-color: var(--color-primary-hover) !important;
+}
+
+/* ---- Links ---- */
+a { color: var(--color-primary) !important; }
+a:hover { color: var(--color-primary-hover) !important; }
+
+/* ---- Input focus ---- */
+input:focus, textarea:focus, [data-testid="stChatInput"] textarea:focus {
+    border-color: var(--color-primary) !important;
+    box-shadow: 0 0 0 1px var(--color-primary) !important;
+    outline: none;
+}
+
+/* ---- Tabs active state ---- */
+[data-testid="stTabs"] [aria-selected="true"] {
+    color: var(--color-primary) !important;
+    border-bottom-color: var(--color-primary) !important;
+}
+
+/* ---- Sidebar ---- */
+.sidebar-label {
+    font-size: 0.68rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--color-text-secondary);
+    margin-bottom: 0.3rem;
+    margin-top: 0.6rem;
+}
+
+/* ---- Eval stats strip ---- */
+.eval-stats-strip {
+    display: flex;
+    gap: 0;
+    align-items: stretch;
+    padding: 0.85rem 1.25rem;
+    background: var(--color-card-bg);
+    border: 1px solid var(--color-border-subtle);
+    border-radius: 0.75rem;
+    margin-bottom: 1.25rem;
+}
+.eval-stat {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    padding: 0 1.25rem;
+    border-right: 1px solid var(--color-border-subtle);
+}
+.eval-stat:first-child { padding-left: 0; }
+.eval-stat:last-child { border-right: none; }
+.eval-stat-value { font-size: 1.9rem; font-weight: 800; line-height: 1; color: var(--color-text-secondary); }
+.eval-stat-value-green { color: #059669; }
+.eval-stat-value-amber { color: #d97706; }
+.eval-stat-label { font-size: 0.7rem; color: #9ca3af; text-transform: uppercase; letter-spacing: 0.07em; margin-top: 0.25rem; }
+.eval-stat-pct { font-size: 0.78rem; color: #d97706; font-weight: 600; margin-left: 0.3rem; }
+
+/* ---- Eval summary pull-quote ---- */
+.eval-summary {
+    font-size: 0.92rem;
+    color: var(--color-text-main);
+    font-style: italic;
+    padding: 0.65rem 1rem;
+    border-left: 3px solid var(--color-primary);
+    background: var(--color-primary-soft);
+    border-radius: 0 0.5rem 0.5rem 0;
+    margin-bottom: 1.1rem;
+    line-height: 1.6;
+}
+
+/* ---- Report section cards ---- */
+.report-card { border-radius: 0.75rem; padding: 1rem 1.1rem; border: 1px solid; min-height: 80px; background: var(--color-card-bg); }
+.report-card-continue { background: rgba(16, 185, 129, 0.04); border-color: rgba(16, 185, 129, 0.22); }
+.report-card-stop     { background: rgba(239, 68, 68, 0.04);  border-color: rgba(239, 68, 68, 0.22); }
+.report-card-start    { background: rgba(245, 158, 11, 0.04);  border-color: rgba(245, 158, 11, 0.22); }
+.report-card-badge {
+    display: inline-block;
+    font-size: 0.67rem; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.09em;
+    padding: 0.18rem 0.55rem; border-radius: 9999px; margin-bottom: 0.65rem;
+}
+.badge-continue { background: rgba(16, 185, 129, 0.13); color: #059669; }
+.badge-stop     { background: rgba(239, 68, 68, 0.13);  color: #dc2626; }
+.badge-start    { background: rgba(245, 158, 11, 0.13); color: #d97706; }
+.report-item {
+    font-size: 0.86rem; color: var(--color-text-main); line-height: 1.6;
+    margin-bottom: 0.55rem; padding-left: 0.85rem; position: relative;
+}
+.report-item::before { content: "·"; position: absolute; left: 0; color: #9ca3af; font-size: 1.1em; }
+.report-item-empty { font-size: 0.82rem; color: #9ca3af; font-style: italic; }
+.report-item-turn { font-size: 0.74rem; color: #9ca3af; font-style: italic; }
+
+/* ---- Turn-by-turn section label ---- */
+.turn-section-label {
+    font-size: 0.68rem; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.1em; color: #9ca3af; margin: 0.5rem 0 0.5rem 0;
+}
+
+/* ---- Sidebar compact briefing ---- */
+.sidebar-briefing { font-size: 0.78rem; line-height: 1.65; color: #4b5563; margin-top: 0.2rem; }
+.sidebar-briefing-row { margin-bottom: 0.12rem; }
+.sidebar-briefing-key { font-weight: 600; color: var(--color-text-main); }
+
+/* ---- Print styles ---- */
 @media print {
     header[data-testid="stHeader"],
     [data-testid="stToolbar"],
@@ -870,10 +1087,8 @@ st.markdown("""
         max-width: 100% !important;
     }
 
-    /* Force expanders open */
     details { display: block !important; }
     details > *:not(summary) { display: block !important; }
-
     .stExpander { page-break-inside: avoid; }
 }
 </style>
@@ -883,19 +1098,18 @@ _init_session()
 _render_sidebar()
 
 if st.session_state.phase == "persona_selection":
-    st.markdown("## Revodata — Consultant Interview Training")
     _render_persona_selection()
 elif st.session_state.phase == "conversation":
-    st.title("Revodata — Consultant Interview Training")
+    _render_header()
     st.divider()
     _render_conversation()
 elif st.session_state.phase == "evaluating":
-    st.title("Revodata — Consultant Interview Training")
+    _render_header()
     st.divider()
     _render_conversation()
     st.divider()
     _run_evaluation()
 elif st.session_state.phase == "evaluation":
-    st.title("Revodata — Consultant Interview Training")
+    _render_header()
     st.divider()
     _render_evaluation()
