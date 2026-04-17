@@ -37,17 +37,13 @@ def _run_evaluation(messages, revealed_items, scenario, graph, scenario_title):
         return
 
     eval_graph = build_eval_graph(graph)
-    all_items = [vars(item) for item in scenario.discovery_items]
     eval_state = eval_graph.invoke({
         "transcript": messages,
         "revealed_items": revealed_items,
-        "topic_taxonomy": scenario.topic_taxonomy,
-        "scenario_items": all_items,
         "briefing": scenario.briefing,
         "maturity": scenario.maturity,
         "turn_annotations": [],
         "simulated_alternatives": [],
-        "topic_coverage": {},
         "stats": {},
         "report": {},
     })
@@ -107,7 +103,7 @@ def _run_evaluation(messages, revealed_items, scenario, graph, scenario_title):
                 print()
 
 
-    log_path = save_session(scenario_title, messages, revealed_items, eval_state)
+    log_path, _ = save_session(scenario_title, messages, revealed_items, eval_state)
     print(f"[LOG] Session saved to {log_path}")
 
 

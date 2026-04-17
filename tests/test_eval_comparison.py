@@ -2,7 +2,7 @@
 Comparison test: Databricks GPT-OSS-120B vs Claude Sonnet 4.6 on evaluate_turn.
 
 Runs the same consultant turns through both models and prints results side by side.
-Each test case targets one or more of the 14 mistake types, plus clean baselines.
+Each test case targets one or more of the 7 mistake types, plus clean baselines.
 Also tests classify_turn() on statement and proposal cases.
 
 Usage:
@@ -102,7 +102,7 @@ CASES = [
     },
     {
         "label": "MULTIPLE REQUIREMENTS — bundled multi-part question",
-        "target": "Ask a question that involves multiple kinds of requirements",
+        "target": "Bundle distinct topics",
         "transcript": (
             "Client: Hi, I am Alex. We are trying to get our Databricks setup in better shape, "
             "particularly around access control."
@@ -116,7 +116,7 @@ CASES = [
     },
     {
         "label": "JARGON — technical acronym the client cannot be expected to know",
-        "target": "Use jargon",
+        "target": "Ask a question inappropriate to client's level",
         "transcript": (
             "Client: Hi, I am Alex. We are trying to get our access control in better shape."
         ),
@@ -126,7 +126,7 @@ CASES = [
     },
     {
         "label": "TECHNICAL QUESTION — requires implementation knowledge to answer",
-        "target": "Ask a technical question",
+        "target": "Ask a question inappropriate to client's level",
         "transcript": (
             "Client: Hi, I am Alex. We have Unity Catalog set up but I don't think it is "
             "configured correctly."
@@ -151,7 +151,7 @@ CASES = [
     },
     {
         "label": "VAGUE — no reasonable meaning",
-        "target": "Ask a vague question which could infer no reasonable meaning",
+        "target": "Ask a vague or generic question",
         "transcript": (
             "Client: Hi, I am Alex. We are trying to sort out our Databricks platform."
         ),
@@ -161,7 +161,7 @@ CASES = [
     },
     {
         "label": "VAGUE — multiple interpretations",
-        "target": "Ask a vague question that leads to multiple interpretations",
+        "target": "Ask a vague or generic question",
         "transcript": (
             "Consultant: How many users do you have?\n"
             "Client: Around 500 from the old reporting system, plus our internal team of about six."
@@ -172,7 +172,7 @@ CASES = [
     },
     {
         "label": "GENERIC — domain-independent, could apply to any project",
-        "target": "Ask a generic, domain-independent question",
+        "target": "Ask a vague or generic question",
         "transcript": (
             "Client: Hi, I am Alex. We are trying to improve our data platform."
         ),
@@ -182,7 +182,7 @@ CASES = [
     },
     {
         "label": "TOO LONG — overly complex compound question",
-        "target": "Ask a question that is too long or articulated",
+        "target": "Bundle distinct topics",
         "transcript": (
             "Client: Hi, I am Alex. We have about 500 users from our old reporting system "
             "who need to move onto Databricks."
@@ -202,7 +202,7 @@ CASES = [
     },
     {
         "label": "INAPPROPRIATE TO PROFILE — asks client to evaluate a technical proposal",
-        "target": "Ask a question inappropriate to user's profile",
+        "target": "Ask a question inappropriate to client's level",
         "transcript": (
             "Consultant: We could use workspace-level isolation with catalog bindings.\n"
             "Client: Okay, that sounds interesting."
@@ -216,7 +216,7 @@ CASES = [
     },
     {
         "label": "FAIL TO ELICIT TACIT — accepts surface answer, misses the deeper process",
-        "target": "Fail to elicit tacit knowledge",
+        "target": "No clarification when needed",
         "transcript": (
             "Consultant: How do users get access to the platform?\n"
             "Client: We have a process where they request access and it gets granted.\n"
@@ -228,7 +228,7 @@ CASES = [
     },
     {
         "label": "FAIL TO CLARIFY UNCLEAR — accepts ambiguous answer without probing",
-        "target": "No clarification when unclear",
+        "target": "No clarification when needed",
         "transcript": (
             "Consultant: How is your environment structured?\n"
             "Client: We have a few different setups across the environments.\n"

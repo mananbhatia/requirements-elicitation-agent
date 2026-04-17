@@ -48,7 +48,7 @@ You are helping a consultant improve their requirements interview technique.
 
 {mistake_summary}
 
-## The 14 mistake types
+## The 7 mistake types
 
 {mistake_types}
 {retry_note}
@@ -62,7 +62,7 @@ To do that well: read the transcript and infer how this client thinks and speaks
 their vocabulary. Avoid terms they have asked to have explained. Pitch the question at
 the level of self-awareness they have shown.
 
-The question must be free of all 14 mistake types listed above.
+The question must be free of all 7 mistake types listed above.
 
 Return only the question text. No explanation, no preamble, no quotation marks.
 """

@@ -6,7 +6,7 @@ Used by turn_evaluator.py (per-turn evaluation) and alternative_simulator.py
 
 Turn flow:
   classify_turn()          — GPT-OSS low; determines turn type before mistake evaluation
-  evaluate_turn()          — Claude Sonnet 4.6; classifies a question against 14 mistake types
+  evaluate_turn()          — Claude Sonnet 4.6; classifies a question against 7 mistake types
   evaluate_turn_routed()   — orchestrates classification + routing; call this from
                               turn_evaluator.py and streamlit_app.py
 """
@@ -113,7 +113,7 @@ Output ONLY a JSON object, no explanation, no reasoning, no other text:
 EVAL_PROMPT = """\
 You are evaluating a consultant's question during a requirements interview with a client.
 
-## The 14 mistake types to check against
+## The 7 mistake types to check against
 
 {mistake_types}
 
@@ -125,8 +125,7 @@ You are evaluating a consultant's question during a requirements interview with 
 
 The following instructions were given to the synthetic client to define how it behaves.
 Use this to assess whether the consultant's language and question complexity are appropriate
-for this client. It is directly relevant to three mistake types: "Use jargon",
-"Ask a technical question", and "Ask a question inappropriate to user's profile".
+for this client. It is directly relevant to Type 5: "Ask a question inappropriate to client's level".
 
 {maturity_level}
 
@@ -141,18 +140,17 @@ Consultant's question: "{question}"
 
 ## Your task
 
-Classify this specific consultant turn against the 14 mistake types above.
+Classify this specific consultant turn against the 7 mistake types above.
 Consider the full conversation context — a question that is vague in isolation
 may be appropriate given what was already discussed, and vice versa.
 
-**is_well_formed** — Is the question free of the 14 mistake types? Set to true if no mistake
+**is_well_formed** — Is the question free of the 7 mistake types? Set to true if no mistake
 types apply, false if any mistakes were found. This is about the question itself, not the outcome.
 
 Important:
 - Many turns will have zero mistakes. That is fine and expected. Do not force-find problems.
 - Only flag a mistake if it clearly applies to this question given the context.
 - If this question has a problem, identify the SINGLE most fundamental mistake type — the root cause that, if fixed, would most likely resolve any other issues with the question. If multiple types seem to apply, they are usually symptoms of the same underlying problem. Pick the one that best describes WHY the question failed, not every label that could technically apply. Return exactly one mistake object or an empty list.
-- The "ask a question that involves multiple kinds of requirements" mistake type applies only when multiple distinct questions are bundled into a single turn. It does NOT apply when a single question merely shifts to a new topic compared to the previous turn. A topic change is not the same as asking multiple questions at once.
 
 Output ONLY a JSON object, no explanation, no reasoning, no other text:
 {{
@@ -242,7 +240,7 @@ def classify_turn(message: str, transcript_text: str, turn_index: int) -> dict |
 
 def evaluate_turn(question: str, transcript_text: str, turn_index: int, maturity_level: str = "", briefing: str = "") -> dict | None:
     """
-    Evaluate a consultant QUESTION against the 14 mistake types.
+    Evaluate a consultant QUESTION against the 7 mistake types.
     Only call this for turns already classified as "question".
     transcript_text should contain only the transcript up to and including this question
     — the client's response is excluded to prevent outcome bias.
@@ -284,7 +282,7 @@ def evaluate_turn_routed(
     the client's response) to prevent outcome bias. Falls back to transcript_text if not provided.
 
     Routes:
-      question             → evaluate_turn() against 14 mistake types; is_well_formed set by LLM
+      question             → evaluate_turn() against 7 mistake types; is_well_formed set by LLM
       solution_proposal    → is_well_formed=None
       explanation          → skipped; is_well_formed=None
       acknowledgment       → skipped; is_well_formed=None

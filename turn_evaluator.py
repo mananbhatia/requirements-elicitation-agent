@@ -4,7 +4,7 @@ Turn evaluator node — node 1 of the evaluation pipeline.
 Iterates through the interview transcript, identifies every consultant turn,
 classifies it by type, then evaluates it accordingly:
 
-  question             → evaluated against the 14 mistake types
+  question             → evaluated against the 7 mistake types
   solution_proposal    → is_well_formed not applicable; no mistake evaluation
   explanation          → skipped (consultant responding to client clarification request)
   acknowledgment       → skipped (filler with no discovery value)

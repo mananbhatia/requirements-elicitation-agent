@@ -34,10 +34,6 @@ specific, and honest.
 
 {stats_text}
 
-## Topic coverage (use these exact numbers — do not recalculate)
-
-{coverage_text}
-
 ## Full conversation transcript
 
 {transcript}
@@ -83,10 +79,8 @@ If only one pattern recurred, write one point. If none recurred, write an empty 
 Identify 1-2 specific areas the consultant left unexplored. For each point: name the missed \
 area, find a concrete moment where the client signalled it, and explain why the unexplored \
 topic mattered to the engagement. Do not write out the question the consultant should have \
-asked — name the gap and the signal. Do not just list uncovered subtopic names — every point \
-must be grounded in a specific moment from the conversation. Each point should be 1-2 \
-sentences. The evidence base is the coverage data (missed subtopics) combined with the \
-transcript.
+asked — name the gap and the signal. Every point must be grounded in a specific moment from \
+the conversation. Each point should be 1-2 sentences.
 
 **Non-redundancy rule:**
 No point may say essentially the same thing as another point in a different section. \
@@ -177,94 +171,6 @@ def _format_alternatives(alternatives: list) -> str:
     return "\n\n".join(parts)
 
 
-def _compute_coverage(topic_taxonomy: dict, scenario_items: list, revealed_items: list) -> dict:
-    """
-    Compute topic coverage from revealed items.
-
-    A subtopic is covered if at least one item with that subtopic code was revealed.
-    A top-level topic is covered (partially or fully) if any of its subtopics were covered.
-    Items with an empty topic field are excluded.
-
-    Returns a dict suitable for both LLM formatting and Streamlit rendering.
-    """
-    taxonomy_subtopics = {code for code in topic_taxonomy if "/" in code}
-
-    subtopics_in_scenario = {
-        item["topic"] for item in scenario_items
-        if item.get("topic") and "/" in item["topic"]
-    } & taxonomy_subtopics
-
-    revealed_subtopic_codes = {
-        item["topic"] for item in revealed_items
-        if item.get("topic") and "/" in item.get("topic", "")
-    }
-    subtopics_covered = subtopics_in_scenario & revealed_subtopic_codes
-
-    parent_to_subtopics: dict[str, list] = {}
-    for code in subtopics_in_scenario:
-        parent = code.split("/")[0]
-        parent_to_subtopics.setdefault(parent, [])
-        if code not in parent_to_subtopics[parent]:
-            parent_to_subtopics[parent].append(code)
-    for parent in parent_to_subtopics:
-        parent_to_subtopics[parent].sort()
-
-    topics_in_scenario = set(parent_to_subtopics.keys())
-    topics_fully_covered = {
-        p for p, subs in parent_to_subtopics.items()
-        if set(subs) <= subtopics_covered
-    }
-    topics_partially_covered = {
-        p for p, subs in parent_to_subtopics.items()
-        if set(subs) & subtopics_covered and p not in topics_fully_covered
-    }
-    topics_not_covered = topics_in_scenario - topics_fully_covered - topics_partially_covered
-
-    return {
-        "subtopics_total": len(subtopics_in_scenario),
-        "subtopics_covered": len(subtopics_covered),
-        "topics_total": len(topics_in_scenario),
-        "topics_covered": len(topics_fully_covered | topics_partially_covered),
-        "subtopics_covered_list": sorted(subtopics_covered),
-        "subtopics_in_scenario_list": sorted(subtopics_in_scenario),
-        "parent_to_subtopics": parent_to_subtopics,
-        "topics_fully_covered": sorted(topics_fully_covered),
-        "topics_partially_covered": sorted(topics_partially_covered),
-        "topics_not_covered": sorted(topics_not_covered),
-    }
-
-
-def _format_coverage_text(coverage: dict, topic_taxonomy: dict) -> str:
-    """Format coverage stats as plain text for the LLM prompt."""
-    lines = [
-        f"Topics in scenario: {coverage['topics_total']}",
-        f"Topics with at least one subtopic covered: {coverage['topics_covered']}",
-        f"Topics with no subtopics covered: {coverage['topics_total'] - coverage['topics_covered']}",
-        f"Subtopics in scenario: {coverage['subtopics_total']}",
-        f"Subtopics covered: {coverage['subtopics_covered']}",
-        f"Subtopics missed: {coverage['subtopics_total'] - coverage['subtopics_covered']}",
-        "",
-        "Topic-by-topic breakdown:",
-    ]
-    covered_set = set(coverage["subtopics_covered_list"])
-    for parent_code in sorted(coverage["parent_to_subtopics"]):
-        subtopics = coverage["parent_to_subtopics"][parent_code]
-        parent_display = topic_taxonomy.get(parent_code, parent_code)
-        n_covered = sum(1 for s in subtopics if s in covered_set)
-        if n_covered == len(subtopics):
-            status = "fully covered"
-        elif n_covered > 0:
-            status = f"partially covered ({n_covered}/{len(subtopics)} subtopics)"
-        else:
-            status = "not covered"
-        lines.append(f"  {parent_display} — {status}:")
-        for sub_code in subtopics:
-            sub_display = topic_taxonomy.get(sub_code, sub_code)
-            mark = "covered" if sub_code in covered_set else "MISSED"
-            lines.append(f"    - {sub_display}: {mark}")
-    return "\n".join(lines)
-
-
 def _compute_stats(annotations: list) -> dict:
     """
     Compute turn and quality statistics from annotations.
@@ -328,23 +234,17 @@ def report_generator(state: EvaluationState) -> dict:
     transcript = state["transcript"]
     annotations = state.get("turn_annotations", [])
     alternatives = state.get("simulated_alternatives", [])
-    topic_taxonomy = state.get("topic_taxonomy", {})
-    scenario_items = state.get("scenario_items", [])
-    revealed_items = state.get("revealed_items", [])
 
     print("[REPORT] Generating feedback report...")
 
-    coverage = _compute_coverage(topic_taxonomy, scenario_items, revealed_items)
     stats = _compute_stats(annotations)
     stats_text = _format_stats_text(stats)
-    coverage_text = _format_coverage_text(coverage, topic_taxonomy)
     transcript_text = _format_transcript(transcript)
     annotations_text = _format_annotations(annotations)
     alternatives_text = _format_alternatives(alternatives)
 
     prompt = _REPORT_PROMPT.format(
         stats_text=stats_text,
-        coverage_text=coverage_text,
         transcript=transcript_text,
         annotations_text=annotations_text,
         alternatives_text=alternatives_text,
@@ -375,4 +275,4 @@ def report_generator(state: EvaluationState) -> dict:
         report_dict = {"summary": "Report generation failed — see terminal for raw output.", "continue": [], "stop": [], "start": []}
 
     print("[REPORT] Report generation complete.")
-    return {"report": report_dict, "topic_coverage": coverage, "stats": stats}
+    return {"report": report_dict, "stats": stats}
