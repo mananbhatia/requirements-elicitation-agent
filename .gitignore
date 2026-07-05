@@ -12,9 +12,12 @@ scenario_generator/notes/
 # Editor-local config
 .vscode/
 
-# Evaluation research artifacts: raw human-annotation workbooks and
-# generated run outputs (regenerable via stability_test.py / evaluation_analysis.py).
-# Curated inputs (gold_set_manifest.json, path_a_fewshot_package.json) and the
-# scripts themselves are tracked.
+# Evaluation research artifacts kept out of version control:
+#   - raw human-annotation workbooks (*.xlsx)
+#   - generated run outputs (*_results.json; regenerable via stability_test.py /
+#     evaluation_analysis.py)
+#   - path_a_fewshot_package.json — contains named-annotator comments
+# The scripts and gold_set_manifest.json remain tracked.
 evals/*.xlsx
 evals/*_results.json
+evals/path_a_fewshot_package.json
