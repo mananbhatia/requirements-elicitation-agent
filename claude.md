@@ -237,7 +237,7 @@ Three dimensions, each set independently in the `Maturity Level` section of the 
 - Anthropic Claude Opus 4.6 for: scenario generator pipeline (narrative generation, refinement passes, validation, review)
 - Voyage AI (`voyageai`, model `voyage-3.5-lite`) for: embedding-based retrieval — CK and DI indices built once per session; cosine similarity via numpy dot product
 - numpy for: in-memory embedding similarity computation
-- Databricks GPT-OSS-120B: no longer used in production (still referenced in tests/)
+- Databricks GPT-OSS-120B: removed; no longer used anywhere in the codebase
 - python-dotenv for API key management (`ANTHROPIC_API_KEY`, `VOYAGE_API_KEY`, `DATABRICKS_TOKEN`, `DATABRICKS_BASE_URL`)
 - `EMBEDDING_MODEL` env var: overrides default embedding model (default: `voyage-3.5-lite`)
 - Streamlit for UI
@@ -300,9 +300,6 @@ agent_v2/
 ├── logs/                    # session logs (gitignored)
 ├── run_embedding_test.py            # debug script: runs embedding retrieval with DEBUG scoring logs (threshold calibration)
 ├── tests/
-│   ├── test_databricks.py           # smoke test for Databricks GPT-OSS endpoint
-│   ├── test_eval_comparison.py      # evaluation accuracy: GPT-OSS vs Sonnet (13 cases)
-│   ├── test_retrieval_comparison.py # retrieval gate accuracy: Haiku vs GPT-OSS low/medium (13 cases)
 │   └── test_embedding_retrieval.py  # unit + smoke tests: structural_check, intent_check, needs_context, EmbeddingStore._query_vec, CK parsing, retrieve_relevant_knowledge
 ├── docs/
 │   ├── behavior_rules.md            # generic client behavior rules (loaded by client.py)
