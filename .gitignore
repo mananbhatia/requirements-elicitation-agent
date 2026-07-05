@@ -8,3 +8,13 @@ __pycache__/
 logs/
 scenario_generator/scenario_workspace/
 scenario_generator/notes/
+
+# Editor-local config
+.vscode/
+
+# Evaluation research artifacts: raw human-annotation workbooks and
+# generated run outputs (regenerable via stability_test.py / evaluation_analysis.py).
+# Curated inputs (gold_set_manifest.json, path_a_fewshot_package.json) and the
+# scripts themselves are tracked.
+evals/*.xlsx
+evals/*_results.json

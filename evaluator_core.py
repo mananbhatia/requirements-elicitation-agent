@@ -5,41 +5,20 @@ Used by turn_evaluator.py (per-turn evaluation) and alternative_simulator.py
 (Stage C evaluation of alternative questions).
 
 Turn flow:
-  classify_turn()          — GPT-OSS low; determines turn type before mistake evaluation
+  classify_turn()          — Claude Haiku 4.5; determines turn type before mistake evaluation
   evaluate_turn()          — Claude Sonnet 4.6; classifies a question against 7 mistake types
   evaluate_turn_routed()   — orchestrates classification + routing; call this from
                               turn_evaluator.py and streamlit_app.py
 """
 
-import os
 import re
 import json
 import warnings
 from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import HumanMessage, AIMessage
 
-def _get_databricks_token() -> str:
-    token = os.environ.get("DATABRICKS_TOKEN")
-    if not token:
-        raise EnvironmentError("DATABRICKS_TOKEN is not set. Add it to your .env file.")
-    return token
-
-
-def _get_databricks_base_url() -> str:
-    url = os.environ.get("DATABRICKS_BASE_URL")
-    if not url:
-        raise EnvironmentError("DATABRICKS_BASE_URL is not set. Add it to your .env file.")
-    return url
-
-
 def _extract_content(response) -> str:
-    """Normalize LLM response to a plain string.
-
-    GPT-OSS-120B sometimes returns content as a list of blocks
-    ([{"type": "text", "text": "..."}]) instead of a plain string.
-    It also prepends chain-of-thought reasoning before the answer.
-    This helper handles both cases and returns the raw text.
-    """
+    """Normalize LLM response to a plain string."""
     content = response.content
     if isinstance(content, list):
         parts = [b["text"] for b in content if isinstance(b, dict) and b.get("type") == "text"]
@@ -110,12 +89,115 @@ Output ONLY a JSON object, no explanation, no reasoning, no other text:
 # Question mistake evaluation
 # ---------------------------------------------------------------------------
 
+# Few-shot exemplars embedded in EVAL_PROMPT below: sourced from
+# evals/path_a_fewshot_package.json — pool turns where both practitioners
+# independently agreed. Turns from the held-out test split (phase2_split.test_turns
+# in evals/evaluation_analysis_results.json) must never appear here — including
+# inside exemplar prior contexts, where earlier same-session consultant turns that
+# are test turns have been replaced with neutral bracketed summaries.
+
 EVAL_PROMPT = """\
 You are evaluating a consultant's question during a requirements interview with a client.
 
 ## The 7 mistake types to check against
 
 {mistake_types}
+
+## Worked examples (practitioner-annotated)
+
+The following examples come from real interviews and were annotated by expert
+consultants. Use them to calibrate how strictly to apply the definitions above.
+Only Types 3, 6, and 7 have mistake examples — Types 1, 2, 4, and 5 are judged
+from their definitions alone; the absence of an example does not make a type
+less applicable.
+
+Some consultant turns in the prior context are summarised in brackets — only the
+final "Consultant's question" line of each example is the turn being judged.
+
+### Example 1 — mistake: Fail to follow up when needed
+
+Prior context:
+Consultant: That's clear, and it's a useful signal. When you say people can still get to data across environments, is that happening mainly for the platform team, or are business users and developers also able to reach beyond the environment they should be working in?
+Client: Honestly I don't know where the boundary sits in terms of who specifically can reach what. I just know there's nothing technically stopping it from happening, which is the part that concerns me.
+Consultant: Understood. From the business side, who are the main user groups relying on the platform today?
+Client: The biggest group is PeCo, the Performance Community. They're the primary data consumers in the business, and they're really the barometer for how the platform is perceived internally. And then there's the broader Oracle migration question, because we've got around 500 OBIEE users who currently rely on that environment for reporting, and they'll all need to land somewhere new eventually. That's a number I think about quite a bit.
+
+Consultant's question: "Got it. Shifting slightly, how confident do you feel today in the way ownership is set up around your data assets and catalog structures?"
+
+Verdict: NOT well-formed — Fail to follow up when needed
+Rationale: The client has just raised a substantive thread — roughly 500 reporting users who will all need to land somewhere new — and the consultant switches to a different topic without exploring it. The new question is also close to a non-sequitur: the client's previous answers already imply low confidence in how ownership is set up, so asking how confident they feel adds little.
+
+### Example 2 — mistake: Ask for solutions
+
+Prior context:
+Consultant: [asks whether a specific technical setup is in place]
+Client: I'd need you to explain what that means before I can give you a useful answer on that one.
+Consultant: [apologises and asks about the day-to-day process when someone new needs access]
+Client: Honestly I'm not close enough to the step-by-step to walk you through it accurately. What I can tell you is that anything involving how users are set up in our identity system goes through Rob Kuppens at Infracore, so there's an external dependency baked into that process already. Whether that's where the drag is coming from, I couldn't say for certain.
+
+Consultant's question: "That external dependency helps explain why it feels sticky. If you were to solve that setup problem properly, what would you want the identity and access process to look like?"
+
+Verdict: NOT well-formed — Ask for solutions
+Rationale: A textbook case of asking for a solution: the consultant asks the client to specify what the identity and access process should look like, putting the burden of designing the fix on the client instead of proposing an approach and testing the client's reaction against their lived experience.
+
+### Example 3 — mistake: Bundle distinct topics
+
+Prior context:
+Client: So we've got Sajith who's our Solutions Architect, he's the most technically senior person on the team and his focus is Azure. Emil works in a data steward and governance kind of role, he's also the internal champion for an AI use case we're trying to get off the ground. Luc is the one who's been doing a lot of the practical hands-on work around self-service analytics, building out Power BI models for business users. And then Levi flagged some concerns a while back about how we were logging jobs, which led to us getting proper monitoring and alerts in place. That's roughly the team, plus two contractors from a firm called Nexivo.
+Consultant: Could you expand on the role of Nexivo in the platform initiative?
+Client: They're embedded in the team and they're competent, they're not an outside party in the way DataFoundry was. But they're contractors, so the cost is always visible in a way that permanent headcount isn't, and I have to keep justifying that spend to leadership. It's not a comfortable position to be in when budgets are under scrutiny.
+
+Consultant's question: "You did not mention any security concerns, but I also don't see anyone in the team immediately concerned with the security or access management domain. Can you explain if there is any friction here, or who I can reach out to for more detailed information?"
+
+Verdict: NOT well-formed — Bundle distinct topics
+Rationale: The consultant raises security out of the blue while the previous thread — the client having to justify contractor costs to leadership — is still open and not fully answered, and packs two different asks into one turn (whether there is friction, and who to reach out to). The client is forced to choose which thread to follow and the others get dropped.
+
+### Example 4 — well-formed
+
+Prior context:
+Client: Hey, I'm Danny, I manage the data platform team here at Verdanta. We've got a platform that, honestly, I'd be the first to admit is a bit of a work in progress, and we're starting to feel the pressure of that more and more. I'm hoping to get a clearer sense of where the real gaps are and what it would take to get things into better shape.
+Consultant: [greets the client and asks for clarification of the opening statement]
+Client: Sure. When I say work in progress, I mean we've got a platform that's functional but we've had to make compromises along the way, and some of the basics aren't as solid as they should be. On the pressure side, the business keeps telling us they're not getting data fast enough, and at the same time I've got a small team that I think needs to slow down and get the fundamentals right before we can actually go faster. And then there's the visibility problem, which is that every month we don't deliver something the board can point to, I feel my room to manoeuvre getting a little smaller.
+
+Consultant's question: "let's focus on the platform first if you don't mind. Can you tell me in what way you needed to compromise and it i'm also curious about those basics that aren't that solid. What does that mean"
+
+Verdict: well-formed
+Rationale: Although the turn contains more than one ask, both probe the same thread the client just opened — the compromises made and the basics that aren't solid. Multiple angles on the same topic are legitimate probing, not bundling, and starting with the fundamentals the client volunteered is the right move.
+
+### Example 5 — well-formed
+
+Prior context:
+Client: That actually makes a lot of sense to me. And to be honest, yeah, I don't think we have anything like that in place. We've got the platform, and the team is working on it, but I don't think anyone has ever sat down and mapped out how it should all fit together in a structured way. Which probably explains why things like access control feel like we're just making it up as we go.
+Consultant: Alright, we can perform an architectural review for you, which takes a couple of days of intensive interviewing, after which we will propose a detailed concept architecture. Than we can iterate on the design, make some adjustments based on your feedback. Then we can help implement, either fully, as a guide, or specific components, based on your demand.
+Client: That sounds like it could be exactly what we need, especially if it gives us something concrete we can point to. The one thing I'd want to understand is what "a couple of days of intensive interviewing" actually means for the team, because they're already stretched pretty thin and I'd need to be realistic about how much time I can pull people away from their normal work.
+
+Consultant's question: "Seeing as there is no foundation in place, I'd say gathering these requirements should have the highest priority.  Perhaps you can tell me for each of the team members, what is their core knowledge domain and how do they currently spend most of their time? If we know this, we can make somewhat a realistic estimate of how much we will need them."
+
+Verdict: well-formed
+Rationale: The question directly addresses the concern the client just raised — how much team time the review would take — and asks for facts the client knows from direct experience (each member's domain and how they spend their time), while explaining why the answer is needed.
+
+### Example 6 — well-formed
+
+Prior context:
+Consultant: [asks how the access process is going]
+Client: From what I hear from the team, it's a source of friction — people waiting longer than they should to get up and running. But I don't have a lot of detail beyond that, and I wouldn't want to point you in the wrong direction by guessing at the specifics.
+
+Consultant's question: "Let me ask that more concretely — when a new analyst needs to get into a specific workspace and query a specific dataset, roughly how long does it take from the moment they ask to the moment they're actually productive?"
+
+Verdict: well-formed
+Rationale: The client couldn't describe the access process beyond hearing it is a source of friction, so the consultant narrows to a concrete, measurable experience — elapsed time from request to being productive. Slowness can be quantified even when the process itself is unclear, so the question stays within what the client can answer.
+
+### Example 7 — well-formed
+
+Prior context:
+Client: So the big thing on the horizon is a massive consolidation project called Digital Core, which is basically moving all our CRMs and ERPs onto Dynamics 365 and Salesforce. That's going to land on our platform eventually and we need to be ready for it. The honest answer on why I'm talking to you is that we had an external party build the initial infrastructure and then they walked out the door, and I'm not sure we've ever fully gotten on top of what they left us with. On top of that the business is frustrated we're not delivering data fast enough, and I'm sitting here thinking we actually need to slow down and fix some fundamentals before we can go faster, which is not an easy conversation to have internally.
+Consultant: [asks the client to clarify which of two aspects of faster delivery the business is unsatisfied about]
+Client: Honestly it's a bit of both, but if I had to pick the one that causes the most noise it's that they want new data sources and new reporting capabilities and they want them quickly. The freshness side of things is there too but it's not where most of the complaints land.
+
+Consultant's question: "Understood! So the primary business concern is onboarding new data sources and unlocking new reporting capabilities for their immediate needs. You mentioned a prior partner started building but walked out the door: Can you tell me more about your collaboration with this party and why and when they left you?"
+
+Verdict: well-formed
+Rationale: The consultant confirms their understanding of the previous answer, then follows up on a thread the client raised themselves — the partner who built the platform and left. Asking why and when they left is one topic explored from related angles, not a bundle of distinct domains.
 
 ## Engagement context
 

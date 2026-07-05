@@ -1,0 +1,425 @@
+[
+  {
+    "row_num": 1,
+    "source_label": "Session4 T17",
+    "source": "session",
+    "session_file": "session_2026-04-14_14-38-22.json",
+    "turn_index": 17,
+    "label": "borderline_wf",
+    "mistake_type": null,
+    "question": "That’s clear. On the responsibility side, where does ownership feel murkiest today ,the platform itself, access decisions, or the data assets in the catalog?"
+  },
+  {
+    "row_num": 2,
+    "source_label": "Sebastien T8",
+    "source": "session",
+    "session_file": "session_2026-04-08_14-38-17.json",
+    "turn_index": 8,
+    "label": "wf",
+    "mistake_type": null,
+    "question": "You did not mention any security concerns, but I also don't see anyone in the team immediately concerned with the security or access management domain. Can you explain if there is any friction here, or who I can reach out to for more detailed information?"
+  },
+  {
+    "row_num": 3,
+    "source_label": "SalesDir T5",
+    "source": "session",
+    "session_file": "session_2026-04-14_13-13-05.json",
+    "turn_index": 5,
+    "label": "mistake",
+    "mistake_type": "Type 1: Fail to probe assumptions",
+    "question": "i understand, and then coming back to the team. You mention it's a small team. So I assume that on the one hand you are tight on resources, but is this also knowledge side. And if so, do you know what the biggest gaps are?"
+  },
+  {
+    "row_num": 4,
+    "source_label": "Session4 T21",
+    "source": "session",
+    "session_file": "session_2026-04-14_14-38-22.json",
+    "turn_index": 21,
+    "label": "mistake",
+    "mistake_type": "Type 4: Vague/generic",
+    "question": "what strategies have you tried to mitigate it?"
+  },
+  {
+    "row_num": 5,
+    "source_label": "Session6 T2",
+    "source": "session",
+    "session_file": "session_2026-04-16_14-10-33.json",
+    "turn_index": 2,
+    "label": "mistake",
+    "mistake_type": "Type 1: Fail to probe assumptions",
+    "question": "You mentioned that's all handled manually. Where in that flow do things tend to break down or slow people down the most — at approval, at provisioning, or somewhere else?"
+  },
+  {
+    "row_num": 6,
+    "source_label": "Sander T1",
+    "source": "session",
+    "session_file": "session_2026-04-08_13-59-25.json",
+    "turn_index": 1,
+    "label": "wf",
+    "mistake_type": null,
+    "question": "Good to know, we can help with it. Lets zoom in on the friction you mention. Can you give me as many clear examples of issues that you are currently encountering or the team is currently reporting to you?"
+  },
+  {
+    "row_num": 7,
+    "source_label": "Session4 T1",
+    "source": "session",
+    "session_file": "session_2026-04-14_14-38-22.json",
+    "turn_index": 1,
+    "label": "wf",
+    "mistake_type": null,
+    "question": "That makes sense. To start with the why behind this review, what feels most broken or risky in the platform today from your team’s point of view?"
+  },
+  {
+    "row_num": 8,
+    "source_label": "Session4 T13",
+    "source": "session",
+    "session_file": "session_2026-04-14_14-38-22.json",
+    "turn_index": 13,
+    "label": "borderline_wf",
+    "mistake_type": null,
+    "question": "Got it. Shifting slightly, how confident do you feel today in the way ownership is set up around your data assets and catalog structures?"
+  },
+  {
+    "row_num": 9,
+    "source_label": "Session4 T14",
+    "source": "session",
+    "session_file": "session_2026-04-14_14-38-22.json",
+    "turn_index": 14,
+    "label": "wf",
+    "mistake_type": null,
+    "question": "That sounds risky. On the compute side, do you have any controls today over who can spin up clusters or other resources, or is that fairly open?"
+  },
+  {
+    "row_num": 10,
+    "source_label": "SalesDir T1",
+    "source": "session",
+    "session_file": "session_2026-04-14_13-13-05.json",
+    "turn_index": 1,
+    "label": "mistake",
+    "mistake_type": "Type 7: Bundle topics",
+    "question": "Hi Danny, nice to meat you. It would be helpful to know that you mean with a work in progress. And also can you give some  examples of the pressure you are experiencing. "
+  },
+  {
+    "row_num": 11,
+    "source_label": "SalesDir T2",
+    "source": "session",
+    "session_file": "session_2026-04-14_13-13-05.json",
+    "turn_index": 2,
+    "label": "wf",
+    "mistake_type": null,
+    "question": "let's focus on the platform first if you don't mind. Can you tell me in what way you needed to compromise and it i'm also curious about those basics that aren't that solid. What does that mean"
+  },
+  {
+    "row_num": 12,
+    "source_label": "Session4 T16",
+    "source": "session",
+    "session_file": "session_2026-04-14_14-38-22.json",
+    "turn_index": 16,
+    "label": "mistake",
+    "mistake_type": "Type 4: Vague/generic",
+    "question": "Understood. Stepping back for a moment, where do you feel things are and where would you like them to be?"
+  },
+  {
+    "row_num": 13,
+    "source_label": "Sebastien T1",
+    "source": "session",
+    "session_file": "session_2026-04-08_14-38-17.json",
+    "turn_index": 1,
+    "label": "wf",
+    "mistake_type": null,
+    "question": "Hi, thanks for making time for me! Before we get into specifics, can you tell me about how the data platform fits into the strategic goals for Verdanta, and what complications made you decide to ask for external help?"
+  },
+  {
+    "row_num": 14,
+    "source_label": "Session3 T3",
+    "source": "session",
+    "session_file": "session_2026-04-14_12-44-49.json",
+    "turn_index": 3,
+    "label": "mistake",
+    "mistake_type": "Type 5: Inappropriate level",
+    "question": "That helps, and I can see why that would make you uneasy. Is that public exposure mainly just how MuleSoft brings data in, or are your Databricks workspaces and storage also reachable over the public internet?"
+  },
+  {
+    "row_num": 15,
+    "source_label": "Session4 T5",
+    "source": "session",
+    "session_file": "session_2026-04-14_14-38-22.json",
+    "turn_index": 5,
+    "label": "mistake",
+    "mistake_type": "Type 6: Ask for solutions",
+    "question": "That external dependency helps explain why it feels sticky. If you were to solve that setup problem properly, what would you want the identity and access process to look like?"
+  },
+  {
+    "row_num": 16,
+    "source_label": "SalesDir T9",
+    "source": "session",
+    "session_file": "session_2026-04-14_13-13-05.json",
+    "turn_index": 9,
+    "label": "wf",
+    "mistake_type": null,
+    "question": "can you share a bit more around the current process of managing it?"
+  },
+  {
+    "row_num": 17,
+    "source_label": "Session4 T9",
+    "source": "session",
+    "session_file": "session_2026-04-14_14-38-22.json",
+    "turn_index": 9,
+    "label": "wf",
+    "mistake_type": null,
+    "question": "That sounds frustrating. When that governance work got interrupted, what areas were you trying to get cleaned up at the time?"
+  },
+  {
+    "row_num": 18,
+    "source_label": "Type2-Dynamics",
+    "source": "constructed",
+    "session_file": null,
+    "turn_index": null,
+    "label": "mistake",
+    "mistake_type": "Type 2: Fail to explore alternatives",
+    "question": "That's a lot of moving parts. So with Digital Core coming, what does the timeline look like for getting your platform ready to ingest from Dynamics 365 and Salesforce?",
+    "prior_context": "Client (Danny): So the big thing on the horizon is a massive consolidation project called Digital Core, which is basically moving all our CRMs and ERPs onto Dynamics 365 and Salesforce. That's going to land on our platform eventually and we need to be ready for it. The honest answer on why I'm talking to you is that we had an external party build the initial infrastructure and then they walked out the door, and I'm not sure we've ever fully gotten on top of what they left us with. On top of that the business is frustrated we're not delivering data fast enough, and I'm sitting here thinking we actually need to slow down and fix some fundamentals before we can go faster, which is not an easy conversation to have internally."
+  },
+  {
+    "row_num": 19,
+    "source_label": "Sander T5",
+    "source": "session",
+    "session_file": "session_2026-04-08_13-59-25.json",
+    "turn_index": 5,
+    "label": "wf",
+    "mistake_type": null,
+    "question": "Seeing as there is no foundation in place, I'd say gathering these requirements should have the highest priority.  Perhaps you can tell me for each of the team members, what is their core knowledge domain and how do they currently spend most of their time? If we know this, we can make somewhat a realistic estimate of how much we will need them. "
+  },
+  {
+    "row_num": 20,
+    "source_label": "SalesDir T4",
+    "source": "session",
+    "session_file": "session_2026-04-14_13-13-05.json",
+    "turn_index": 4,
+    "label": "mistake",
+    "mistake_type": "Type 1: Fail to probe assumptions",
+    "question": "would you say that this are the main reasons that you are struggling to deliver the right insights to the business and therefore have the perceived visibility problem?"
+  },
+  {
+    "row_num": 21,
+    "source_label": "Session3 T13",
+    "source": "session",
+    "session_file": "session_2026-04-14_12-44-49.json",
+    "turn_index": 13,
+    "label": "mistake",
+    "mistake_type": "Type 3: Fail to follow up",
+    "question": "That’s fair — even from a management view, you can usually tell when a process is too manual without knowing every step. When someone asks for access, who actually decides what they should get?"
+  },
+  {
+    "row_num": 22,
+    "source_label": "Type2-PowerBI",
+    "source": "constructed",
+    "session_file": null,
+    "turn_index": null,
+    "label": "mistake",
+    "mistake_type": "Type 2: Fail to explore alternatives",
+    "question": "That's a painful lesson. So the Power BI prototypes went stale because the team couldn't keep up with demand. How many business users were actively using those dashboards before things fell apart?",
+    "prior_context": "Client (Danny): Partly, yeah. But I think the bigger visibility problem is less about the integrations and more about the fact that we tried to build a self-service layer for business users a couple of years ago and it kind of fell apart. We had some Power BI prototypes built out, people could explore data without needing SQL, but the requests from business users came in faster than we could handle them, there was no proper process to manage that, and eventually the data went stale and nobody used it anymore. That's the thing that stings most from a visibility perspective, because that's what the business actually sees."
+  },
+  {
+    "row_num": 23,
+    "source_label": "Sebastien T4",
+    "source": "session",
+    "session_file": "session_2026-04-08_14-38-17.json",
+    "turn_index": 4,
+    "label": "wf",
+    "mistake_type": null,
+    "question": "How easy or difficult is it with the adopted infrastructure to onboard new systems?"
+  },
+  {
+    "row_num": 24,
+    "source_label": "Session4 T18",
+    "source": "session",
+    "session_file": "session_2026-04-14_14-38-22.json",
+    "turn_index": 18,
+    "label": "mistake",
+    "mistake_type": "Type 5: Inappropriate level",
+    "question": "got it! do you have UC setup for data governance?"
+  },
+  {
+    "row_num": 25,
+    "source_label": "Session6 T4",
+    "source": "session",
+    "session_file": "session_2026-04-16_14-10-33.json",
+    "turn_index": 4,
+    "label": "wf",
+    "mistake_type": null,
+    "question": "Let me ask that more concretely — when a new analyst needs to get into a specific workspace and query a specific dataset, roughly how long does it take from the moment they ask to the moment they're actually productive?"
+  },
+  {
+    "row_num": 26,
+    "source_label": "Sebastien T5",
+    "source": "session",
+    "session_file": "session_2026-04-08_14-38-17.json",
+    "turn_index": 5,
+    "label": "mistake",
+    "mistake_type": "Type 5: Inappropriate level",
+    "question": "There are various angles we can now explore, let's start with the environments and requirements you mention. Has there been friction in connecting the legacy and target platform environments from a networking perspective, or is the struggle more in the data integration or compatibility?"
+  },
+  {
+    "row_num": 27,
+    "source_label": "Sebastien T2",
+    "source": "session",
+    "session_file": "session_2026-04-08_14-38-17.json",
+    "turn_index": 2,
+    "label": "wf",
+    "mistake_type": null,
+    "question": "Can you clarify what faster delivery the business is unsatisfied about, is that talking about the freshness of data, or new functionality of existing dashboards or reports in existing systems?"
+  },
+  {
+    "row_num": 28,
+    "source_label": "SalesDir T6",
+    "source": "session",
+    "session_file": "session_2026-04-14_13-13-05.json",
+    "turn_index": 6,
+    "label": "mistake",
+    "mistake_type": "Type 6: Ask for solutions",
+    "question": "If you had to pick 3 topics where Sajith could spend his time on, what would those be?"
+  },
+  {
+    "row_num": 29,
+    "source_label": "Session3 T12",
+    "source": "session",
+    "session_file": "session_2026-04-14_12-44-49.json",
+    "turn_index": 12,
+    "label": "mistake",
+    "mistake_type": "Type 3: Fail to follow up",
+    "question": "Understood — even without the full step-by-step, it’s clear access management is eating up effort it probably shouldn’t. When someone needs access today, is that mostly being handled one request at a time by hand, or do you already have some kind of group- or role-based setup behind it?"
+  },
+  {
+    "row_num": 30,
+    "source_label": "Session4 T3",
+    "source": "session",
+    "session_file": "session_2026-04-14_14-38-22.json",
+    "turn_index": 3,
+    "label": "mistake",
+    "mistake_type": "Type 5: Inappropriate level",
+    "question": "Got it. Do you already have SCIM provisioning from Entra ID into Databricks set up?"
+  },
+  {
+    "row_num": 31,
+    "source_label": "Sebastien T9",
+    "source": "session",
+    "session_file": "session_2026-04-08_14-38-17.json",
+    "turn_index": 9,
+    "label": "wf",
+    "mistake_type": null,
+    "question": "It sounds like Infracore manages your user accounts and access permissions. Is that correct, and what else do they manage that is related to the platform?"
+  },
+  {
+    "row_num": 32,
+    "source_label": "Type2-MuleSoft",
+    "source": "constructed",
+    "session_file": null,
+    "turn_index": null,
+    "label": "mistake",
+    "mistake_type": "Type 2: Fail to explore alternatives",
+    "question": "Got it, so MuleSoft is your ingestion layer. Let's focus on that security concern — do you know whether the MuleSoft connections are using any kind of encryption or authentication when they pull data in?",
+    "prior_context": "Consultant: How are you currently bringing source data into the platform today?    Client (Danny): We use a tool called MuleSoft to pull data in. But one thing that bothers me is that the connections run over the public internet rather than through some kind of secure internal network. My guys have flagged that as a concern and honestly I don't fully understand the technical side of it, but it doesn't sound right to me that sensitive operational data is travelling that way."
+  },
+  {
+    "row_num": 33,
+    "source_label": "Session6 T3",
+    "source": "session",
+    "session_file": "session_2026-04-16_14-10-33.json",
+    "turn_index": 3,
+    "label": "mistake",
+    "mistake_type": "Type 4: Vague/generic",
+    "question": "So how's the whole access thing going for you guys?"
+  },
+  {
+    "row_num": 34,
+    "source_label": "Session6 T7",
+    "source": "session",
+    "session_file": "session_2026-04-16_14-10-33.json",
+    "turn_index": 7,
+    "label": "mistake",
+    "mistake_type": "Type 7: Bundle topics",
+    "question": "Can you tell me how data gets ingested into Databricks, how you're separating dev, test, and prod environments, and what your overall governance model looks like across all of that?"
+  },
+  {
+    "row_num": 35,
+    "source_label": "Sander T6",
+    "source": "session",
+    "session_file": "session_2026-04-08_13-59-25.json",
+    "turn_index": 6,
+    "label": "mistake",
+    "mistake_type": "Type 7: Bundle topics",
+    "question": "Thank you for this. You say Sajith is stretched thin across a lot of things, could you make this more concrete, what things are these? We probably won't need Luc or Ton, as they are not working on Databricks at all, please verify it with them. We will need Emil a lot, as the governance domain is often a very good starting point to help us map the use cases and functional requirements. So roughly indicating, if we can get an initial session (2 hours) with Sajith and Emil, followed by 2 days with Emil and another 1 day with Sajith, that would probably get us the information we need."
+  },
+  {
+    "row_num": 36,
+    "source_label": "Session4 T10",
+    "source": "session",
+    "session_file": "session_2026-04-14_14-38-22.json",
+    "turn_index": 10,
+    "label": "mistake",
+    "mistake_type": "Type 7: Bundle topics",
+    "question": "That’s useful to know. Stepping back a bit, how are you handling access requests today, and separately how clean is the split between your development, acceptance, and production environments?"
+  },
+  {
+    "row_num": 37,
+    "source_label": "SalesDir T7",
+    "source": "session",
+    "session_file": "session_2026-04-14_13-13-05.json",
+    "turn_index": 7,
+    "label": "wf",
+    "mistake_type": null,
+    "question": "on the governance part, besides the capabilities of the team. Are there also blockers on the business side that is holding it back?"
+  },
+  {
+    "row_num": 38,
+    "source_label": "SalesDir T3",
+    "source": "session",
+    "session_file": "session_2026-04-14_13-13-05.json",
+    "turn_index": 3,
+    "label": "mistake",
+    "mistake_type": "Type 4: Vague/generic",
+    "question": "so to summarize, it's a bit like building on quicksand. Anyhing else that comes to mind regarding the platform?"
+  },
+  {
+    "row_num": 39,
+    "source_label": "Session3 T1",
+    "source": "session",
+    "session_file": "session_2026-04-14_12-44-49.json",
+    "turn_index": 1,
+    "label": "wf",
+    "mistake_type": null,
+    "question": "That makes sense, Danny, and it’s usually a sign there’s a real gap between what the platform was built for originally and what the business now expects from it. What’s changed on the business side that’s making you question whether the platform is still fit for purpose?"
+  },
+  {
+    "row_num": 40,
+    "source_label": "Session4 T4",
+    "source": "session",
+    "session_file": "session_2026-04-14_14-38-22.json",
+    "turn_index": 4,
+    "label": "wf",
+    "mistake_type": null,
+    "question": "Fair enough, that’s on me. Staying at the level you see day to day, when someone new needs access, what does that process usually look like from your team’s side?"
+  },
+  {
+    "row_num": 41,
+    "source_label": "Session6 T1",
+    "source": "session",
+    "session_file": "session_2026-04-16_14-10-33.json",
+    "turn_index": 1,
+    "label": "borderline",
+    "mistake_type": null,
+    "question": "So what does the current process of requesting and gaining access in Databricks look like from an operational perspective? Suppose, I'm onboarding, which steps do I take?"
+  },
+  {
+    "row_num": 42,
+    "source_label": "Sebastien T3",
+    "source": "session",
+    "session_file": "session_2026-04-08_14-38-17.json",
+    "turn_index": 3,
+    "label": "mistake",
+    "mistake_type": "Type 7: Bundle topics",
+    "question": "Understood! So the primary business concern is onboarding new data sources and unlocking new reporting capabilities for their immediate needs. You mentioned a prior partner started building but walked out the door: Can you tell me more about your collaboration with this party and why and when they left you?"
+  }
+]

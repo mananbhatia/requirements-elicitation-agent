@@ -6,6 +6,7 @@ All graph logic lives in graph.py, eval_graph.py, knowledge.py, session_logger.p
 """
 
 import json
+import os
 import re
 from pathlib import Path
 from dotenv import load_dotenv
@@ -180,6 +181,52 @@ def _reset_session():
         if key in st.session_state:
             del st.session_state[key]
     st.rerun()
+
+
+def _load_replay_log(log_path: str):
+    """
+    Populate session state from a completed session log so the app renders
+    the evaluation phase exactly as it did live, without running any graph
+    or LLM call. Used by replay_session.py for reproducing past sessions
+    (e.g. for thesis screenshots).
+    """
+    raw_content = Path(log_path).read_text()
+    log = json.loads(raw_content)
+
+    # scenario field is "{scenario_title} — {persona_name}" for multi-persona
+    # files (see knowledge.py Scenario.title); split on the *last* separator
+    # since scenario_title itself may contain " — ".
+    scenario_field = log.get("scenario", "")
+    persona = None
+    if " — " in scenario_field:
+        persona = scenario_field.rsplit(" — ", 1)[1].strip()
+
+    lc_messages = []
+    for m in log.get("transcript", []):
+        if m.get("role") == "consultant":
+            lc_messages.append(HumanMessage(content=m.get("content", "")))
+        else:
+            lc_messages.append(AIMessage(content=m.get("content", "")))
+
+    session_id = Path(log_path).stem.removeprefix("session_")
+
+    st.session_state.phase = "evaluation"
+    st.session_state.scenario_path = str(DEFAULT_SCENARIO)
+    st.session_state.selected_persona = persona
+    st.session_state.messages = log.get("transcript", [])
+    st.session_state.lc_messages = lc_messages
+    st.session_state.revealed_items = log.get("revealed_items", [])
+    st.session_state.retrieval_traces = log.get("retrieval_traces", [])
+    st.session_state.session_id = session_id
+    st.session_state.consultant_email = log.get("consultant_email", "unknown")
+    st.session_state.eval_state = {
+        "turn_annotations": log.get("turn_annotations", []),
+        "simulated_alternatives": log.get("simulated_alternatives", []),
+        "report": log.get("report", {}),
+        "stats": log.get("summary_stats", {}),
+    }
+    st.session_state.log_path = log_path
+    st.session_state.log_content = raw_content
 
 
 # ---------------------------------------------------------------------------
@@ -1093,6 +1140,10 @@ input:focus, textarea:focus, [data-testid="stChatInput"] textarea:focus {
 }
 </style>
 """, unsafe_allow_html=True)
+
+_replay_log_path = os.environ.get("REPLAY_SESSION_LOG")
+if _replay_log_path and "phase" not in st.session_state:
+    _load_replay_log(_replay_log_path)
 
 _init_session()
 _render_sidebar()
