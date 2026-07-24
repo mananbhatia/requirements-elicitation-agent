@@ -13,9 +13,6 @@ env:
   - name: ANTHROPIC_API_KEY
     valueFrom: anthropic_key
 
-  - name: OPENAI_API_KEY
-    valueFrom: openai_key
-
   - name: DATABRICKS_TOKEN
     valueFrom: databricks_token
 
