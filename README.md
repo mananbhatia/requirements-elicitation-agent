@@ -22,7 +22,7 @@ This system lets consultants practice that skill in a controlled environment wit
 
 **2. Knowledge Gating.** This is the architectural core of the system. The client LLM physically cannot reveal facts it hasn't been shown. Scenario knowledge is split into two tiers: character knowledge (contextual background, retrieved fresh each turn) and discovery items (specific facts gated behind retrieval). Retrieval is embedding-based using Voyage AI — no LLM call per turn. This is structural exclusion, not prompt-based suppression.
 
-**3. Turn-Level Evaluation.** After the interview, each consultant question is classified against 7 mistake types (Category A: Follow-up Mistakes — Types 1–3; Category B: Question Framing Mistakes — Types 4–7). The evaluator sees only the question and prior context, never the client's response, to prevent outcome bias. At most one mistake is returned per turn — the single most fundamental root cause.
+**3. Turn-Level Evaluation.** After the interview, each consultant question is classified against 7 mistake types (Category A: Follow-up Mistakes — Types 1–3; Category B: Question Framing Mistakes — Types 4–7). The evaluator sees only the question and prior context, never the client's response, to prevent outcome bias. At most one mistake is returned per turn — the single most fundamental root cause. The evaluator prompt is calibrated with 7 practitioner-annotated worked examples (few-shot), drawn from the held-out gold set so strictness matches how expert consultants actually judge these turns.
 
 **4. Counterfactual Alternatives.** For every flawed question, the system generates an improved version (with a retry loop that feeds back evaluation failures), runs it through the same conversation graph, and shows what the client *would have* said. This answers both "what should I have asked?" and "why would it have been better?"
 
@@ -89,6 +89,7 @@ A context-aware retry prepends the preceding exchange when the question is refer
 - **Counterfactual simulation reuses the conversation graph.** The alternative question runs through the identical retrieval + client pipeline, ensuring a fair comparison.
 - **Statistics computed in Python, not by LLMs.** Turn counts and mistake frequencies are pre-computed and passed to the report LLM as hard facts. This removes a known failure mode where LLMs miscount from long annotation lists.
 - **Single mistake per turn.** Multiple mistake types appearing simultaneously are treated as symptoms of the same underlying problem; only the most fundamental root cause is returned.
+- **Few-shot calibration from expert annotations.** The evaluator prompt embeds worked examples sourced only from turns where two practitioners independently agreed, with held-out test turns excluded (including from exemplar prior context). The evaluator's agreement with human annotators and run-to-run stability are measured offline in `evals/` rather than assumed.
 
 ---
 
@@ -133,6 +134,7 @@ agent_v2/
 ├── paths.py                 # Deployment-safe path resolution; SESSION_LOG_DIR from env
 ├── app.yaml                 # Databricks Apps deployment config (env vars, secret refs)
 ├── run_embedding_test.py    # Debug script: embedding retrieval with scoring logs (threshold calibration)
+├── replay_session.py        # Replay a saved session log in the Streamlit UI (evaluation phase, no LLM calls)
 ├── docs/
 │   ├── behavior_rules.md            # Generic client behavior rules (loaded by client.py at runtime)
 │   ├── mistake_types.md             # 7-type mistake taxonomy
@@ -153,9 +155,16 @@ agent_v2/
 │   ├── phase6_assemble.py           # Per-persona assembly + multi-persona combine
 │   └── phase7_review.py             # Dedup, revalidation, retag, review checklist
 ├── tests/
-│   ├── test_eval_comparison.py      # Evaluation accuracy: 13 cases
-│   ├── test_retrieval_comparison.py # Retrieval gate accuracy: 13 cases
 │   └── test_embedding_retrieval.py  # Unit + smoke tests: pre-filters, EmbeddingStore, retrieve_relevant_knowledge
+├── evals/                           # Offline evaluation harness (thesis Chapter 7); not used at runtime
+│   ├── gold_set_manifest.json       # 42-turn gold set: researcher key + turn source
+│   ├── annotation_sheet_*.xlsx      # Expert annotator sheets (Paul, Joost, domain expert)
+│   ├── stability_test.py            # Evaluator self-consistency across N runs per gold-set turn
+│   ├── evaluation_analysis.py       # Normalisation, train/test split, Cohen's kappa, zero-shot accuracy
+│   ├── fewshot_comparison.py        # Zero-shot vs few-shot evaluator comparison (28-turn held-out set)
+│   └── path_a_fewshot_package.json  # Source of the EVAL_PROMPT worked examples
+├── figures/
+│   └── figure_specs_v1.md           # Thesis figure specifications
 └── requirements.txt
 ```
 
@@ -248,6 +257,21 @@ Key academic foundations:
 - **Shen et al. (2025)**: Mistake taxonomy for evaluating requirements elicitation interview quality
 - **Lojo et al. (2025), C-LEIA**: Validated LLM-based client simulation for interview training (120 students, 85% preferred AI client over static materials)
 - **Jin et al. (2025), ReqElicitGym**: Oracle User design principles for simulated clients (Groundedness, Passive Response, Context Awareness)
+
+### Evaluator Validation
+
+The LLM-as-judge evaluator is validated empirically rather than assumed correct (thesis Chapter 7). Two practitioners independently annotated a 42-turn gold set; agreement between them is measured with Cohen's kappa (bootstrap 95% CIs). The gold set is split into a 14-turn few-shot pool and a 28-turn held-out test set (fixed seed). Evaluator quality is measured against that test set on two axes: run-to-run **stability** (majority label over repeated runs) and **agreement with the human annotators**, comparing the zero-shot evaluator against the few-shot evaluator (exact McNemar tests). The full reproducible analysis lives in `evals/`.
+
+---
+
+## Future Work
+
+Built and validated: knowledge gating, embedding retrieval, the 7-type mistake evaluator with few-shot calibration and empirical validation, counterfactual alternatives, the coaching report, multi-persona scenarios, and the scenario-generator pipeline. Not yet built:
+
+- **Topic coverage tracking** — which subtopics were covered vs. missed across a session (the taxonomy exists in scenario files but coverage is not yet computed or displayed).
+- **Interaction strategy** — whether the consultant only asked questions or also proposed solutions.
+- **Adaptability** — whether the consultant adapted to the client's knowledge level over the course of the interview.
+- **Retrieval logic revisit** — the retrieval gate currently serves conversation flow only; the matching logic is a candidate for future refinement.
 
 ---
 
