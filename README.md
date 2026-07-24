@@ -192,6 +192,8 @@ agent_v2/
 
 ## Getting Started
 
+**Runs fully locally — no Databricks account required.** You only need two API keys (Anthropic + Voyage). Session logs are written to a local `logs/` directory by default; the Databricks integration is optional and only used for the hosted deployment. No Docker needed.
+
 ### Prerequisites
 
 - Python 3.10+
@@ -201,14 +203,18 @@ agent_v2/
 ### Installation
 
 ```bash
-git clone https://github.com/mananbhatia96/requirements-elicitation-agent.git
+git clone https://github.com/mananbhatia/requirements-elicitation-agent.git
 cd requirements-elicitation-agent
 pip install -r requirements.txt
 ```
 
 ### Configuration
 
-Create a `.env` file in the project root:
+Copy the example env file and fill in your two keys:
+
+```bash
+cp .env.example .env
+```
 
 ```env
 ANTHROPIC_API_KEY=your-anthropic-key
@@ -217,9 +223,11 @@ VOYAGE_API_KEY=your-voyage-key
 # Optional: override default embedding model (default: voyage-3.5-lite)
 # EMBEDDING_MODEL=voyage-3.5-lite
 
-# Optional: Databricks session log storage
+# Optional — hosted deployment only: write session logs to a Databricks
+# Unity Catalog Volume instead of local logs/. Leave unset to run locally.
 # DATABRICKS_TOKEN=your-token
 # DATABRICKS_BASE_URL=https://your-workspace.azuredatabricks.net
+# SESSION_LOG_DIR=/Volumes/your-catalog/default/logs/sessions
 ```
 
 ### Running
@@ -297,4 +305,4 @@ Built and validated: knowledge gating, embedding retrieval, the 7-type mistake e
 
 ## License
 
-This project was developed as part of a thesis internship. Contact the author for licensing information.
+Released under the [MIT License](LICENSE). Developed as part of a master's thesis internship at Revodata; scenario content is based on anonymized engagement material.
