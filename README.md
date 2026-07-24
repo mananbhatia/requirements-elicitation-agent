@@ -6,6 +6,26 @@ Built as a master's thesis project at [Revodata](https://revodata.nl) (Databrick
 
 ---
 
+## Demo
+
+**1. Briefing and persona selection.** Each scenario can expose several stakeholders with different roles and maturity levels; the consultant picks who to interview and gets an engagement briefing up front.
+
+![Consultant briefing and persona selection screen](figures/Revelio-intro-screen.png)
+
+**2. The interview.** A multi-turn conversation with the synthetic client. The client answers only what's asked and reveals facts progressively — here it deflects an over-technical question instead of volunteering information, exactly as a real low-maturity stakeholder would.
+
+![Interview conversation with the synthetic client](figures/Revelio-conversation-screen.png)
+
+**3. The coaching report.** After the interview, headline stats plus *Continue / Stop / Start* feedback, each point tied to specific turns.
+
+![Evaluation report with Continue, Stop and Start feedback](figures/Revelio-feedback-report-screen.png)
+
+**4. Turn-by-turn counterfactuals.** For each flawed question the system generates a stronger alternative, simulates how the client *would have* responded to it, and explains why it works — a counterfactual, not just a critique.
+
+![Turn-by-turn detail showing the original question versus a generated alternative](figures/Revelio-turn-by-turn-analysis.png)
+
+---
+
 ## The Problem
 
 Consultants enter client meetings with deep technical expertise but zero knowledge of the client's organization, maturity level, or political dynamics. They have to discover all of this through conversation. Current training is informal shadowing: unscalable, inconsistent, and with no feedback mechanism.
