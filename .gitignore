@@ -4,7 +4,6 @@ __pycache__/
 *.pyc
 .DS_Store
 **/.DS_Store
-.env.example
 logs/
 scenario_generator/scenario_workspace/
 scenario_generator/notes/
